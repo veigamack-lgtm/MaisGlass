@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calculadora Glass Mais</title>
+<style>
+  :root {
+    --bg: #f3f5f8; --card: #ffffff; --ink: #172033; --muted: #5b6577; --line: #dde3ec;
+    --brand: #0f4c81; --brand-ink: #ffffff; --accent: #e8f1fb; --purple: #f3ecff; --purple-ink: #5b2ca0;
+    --ok: #1c7c54; --warn: #b45309; --danger: #b42318; --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  header { background: var(--brand); color: var(--brand-ink); padding: 14px 20px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .spacer { flex: 1; }
+  header button { background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.5); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  nav.tabs { display: flex; gap: 4px; background: var(--brand); padding: 0 20px; }
+  nav.tabs button { background: transparent; color: rgba(255,255,255,.75); border: 0; padding: 10px 16px; font-size: 14px; cursor: pointer; border-bottom: 3px solid transparent; }
+  nav.tabs button.active { color: #fff; border-bottom-color: #fff; font-weight: 600; }
+  main { max-width: 1180px; margin: 0 auto; padding: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 600; }
+  .card h3 { font-size: 14px; margin: 18px 0 8px; color: var(--ink); }
+  .field { display: grid; grid-template-columns: 1fr 190px; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+  .field:last-child { border-bottom: 0; }
+  .field.stack { grid-template-columns: 1fr; gap: 4px; }
+  .field.stack select { font-size: 15px; padding: 9px 10px; }
+  /* gráfico de composição */
+  .viz-bar { display: flex; height: 34px; border-radius: 6px; overflow: hidden; gap: 2px; background: transparent; margin: 6px 0 14px; }
+  .viz-seg { position: relative; min-width: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 600; cursor: default; }
+  .viz-seg:first-child { border-radius: 6px 0 0 6px; } .viz-seg:last-child { border-radius: 0 6px 6px 0; }
+  .viz-seg:hover { outline: 2px solid var(--ink); outline-offset: -2px; z-index: 1; }
+  .viz-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 20px; font-size: 14px; }
+  @media (max-width: 600px) { .viz-legend { grid-template-columns: 1fr; } }
+  .viz-legend .item { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .viz-legend .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .viz-legend .nm { flex: 1; color: var(--ink); }
+  .viz-legend .nm small { display: block; color: var(--muted); font-size: 12px; }
+  .viz-legend .vl { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .viz-legend .pc { width: 52px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .viz-tip { position: fixed; pointer-events: none; background: var(--ink); color: #fff; font-size: 13px; padding: 6px 10px; border-radius: 6px; z-index: 50; white-space: nowrap; }
+  .field label { color: var(--ink); }
+  .field small { display: block; color: var(--muted); font-size: 12px; }
+  input, select { width: 100%; font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
+  input:disabled, select:disabled { background: #f1f3f6; color: #9aa3b2; }
+  .purple input, .purple select { background: var(--purple); border-color: #d9c8f5; }
+  .purple input:disabled, .purple select:disabled { background: #f1f3f6; border-color: var(--line); }
+  .result-hero { background: var(--brand); color: #fff; border-radius: var(--radius); padding: 18px 20px; margin-bottom: 14px; }
+  .result-hero .label { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; opacity: .85; }
+  .result-hero .value { font-size: 34px; font-weight: 700; margin-top: 4px; }
+  .result-hero .sub { opacity: .9; margin-top: 4px; font-size: 14px; }
+  .kv { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+  .kv:last-child { border-bottom: 0; }
+  .kv .k { color: var(--muted); }
+  .kv .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .kv.total .v { color: var(--brand); }
+  .kv.neg .v { color: var(--danger); }
+  .chip { display: inline-block; background: var(--accent); color: var(--brand); border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 600; }
+  .notes { background: #fbfcfe; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 14px; color: var(--muted); }
+  .notes p { margin: 4px 0; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; align-items: center; }
+  .btn { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; }
+  .btn.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .btn.danger { color: var(--danger); border-color: #f1c4c0; }
+  .btn.small { padding: 4px 9px; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; font-weight: 600; }
+  td input, td select { padding: 5px 8px; }
+  td.txt { min-width: 150px; }
+  td.txt.wide { min-width: 280px; }
+  td.num input { min-width: 70px; }
+  td select { min-width: 72px; }
+  td.num input { text-align: right; }
+  .table-wrap { overflow-x: auto; }
+  .status { font-size: 13px; color: var(--muted); }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--danger); }
+  details { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-top: 12px; background: #fff; }
+  details summary { cursor: pointer; font-weight: 600; }
+  .hint { color: var(--muted); font-size: 13px; }
+  .login { max-width: 380px; margin: 80px auto; }
+  .login h2 { margin-top: 0; }
+  .login .btn { width: 100%; margin-top: 12px; }
+  .hidden { display: none !important; }
+  .warn { color: var(--warn); font-size: 13px; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
+</style>
+</head>
+<body>
+
+<!-- ===================== LOGIN ===================== -->
+<section id="login" class="login card">
+  <h2>Calculadora Glass Mais</h2>
+  <p class="hint">Área restrita. Informe a senha de administrador.</p>
+  <input type="password" id="loginSenha" placeholder="Senha" autocomplete="current-password">
+  <button class="btn primary" id="loginBtn">Entrar</button>
+  <p id="loginErro" class="status err hidden">Senha incorreta.</p>
+</section>
+
+<!-- ===================== APP ===================== -->
+<div id="app" class="hidden">
+  <header>
+    <h1>Calculadora Glass Mais</h1>
+    <span class="chip" id="hdrDolar"></span>
+    <span class="spacer"></span>
+    <button id="logoutBtn">Sair</button>
+  </header>
+  <nav class="tabs">
+    <button data-tab="calc" class="active">Calculadora</button>
+    <button data-tab="config">Configurações</button>
+  </nav>
+
+  <main>
+    <!-- ---------- ABA CALCULADORA ---------- -->
+    <section id="tab-calc">
+      <div class="grid">
+        <div class="card purple">
+          <h2>Entradas</h2>
+          <div class="field"><label>Cliente é contribuinte?</label>
+            <select id="in-contribuinte"><option value="nao">Não contribuinte</option><option value="sim">Contribuinte</option></select></div>
+          <div class="field stack"><label>Produto</label><select id="in-produto"></select></div>
+          <div class="field"><label>Perda (%)<small>Aproveitamento de corte</small></label><input type="number" id="in-perda" min="0" step="0.5" value="0"></div>
+          <div class="field"><label>Preço base por m² (R$)</label><input type="number" id="in-precoBase" min="0" step="0.01"></div>
+          <div class="field"><label>Quantidade (m²)</label><input type="number" id="in-quantidade" min="0" step="0.01"></div>
+          <div class="field"><label>Frete (R$)</label><input type="number" id="in-frete" min="0" step="0.01"></div>
+          <div class="field"><label>Pagamento</label>
+            <select id="in-pagamento"><option>À vista</option><option>Parcelado</option></select></div>
+          <div class="field"><label>Bandeira do cartão</label><select id="in-bandeira"></select></div>
+          <div class="field"><label>Número de parcelas</label><input type="number" id="in-parcelas" min="1" max="12" step="1"></div>
+          <div class="field"><label>UF destino</label><select id="in-uf"></select></div>
+        </div>
+
+        <div>
+          <div class="result-hero">
+            <div class="label">Preço final ao cliente</div>
+            <div class="value" id="out-precoFinal">—</div>
+            <div class="sub" id="out-precoM2"></div>
+          </div>
+          <div class="card">
+            <h2>Resultado</h2>
+            <div class="kv"><span class="k">Produto</span><span class="v" id="out-produto"></span></div>
+            <div class="kv"><span class="k">NCM</span><span class="v"><span class="chip" id="out-ncm"></span></span></div>
+            <div class="kv"><span class="k">Taxa do cartão (%)</span><span class="v" id="out-taxaCartao"></span></div>
+            <div class="kv"><span class="k">Preço + taxa do cartão (R$)</span><span class="v" id="out-precoComTaxa"></span></div>
+            <div class="kv"><span class="k">DIFAL (%) — se não contribuinte</span><span class="v" id="out-difalPct"></span></div>
+            <div class="kv"><span class="k">Valor do DIFAL (R$)</span><span class="v" id="out-difal"></span></div>
+            <div class="kv total"><span class="k">PREÇO FINAL AO CLIENTE (R$)</span><span class="v" id="out-precoFinal2"></span></div>
+          </div>
+          <div class="notes" style="margin-top:14px" id="out-notas"></div>
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top:20px">
+        <div class="card">
+          <h2>Indicadores por m²</h2>
+          <div class="kv"><span class="k">Custo matéria-prima (R$/m²)</span><span class="v" id="out-custoM2"></span></div>
+          <div class="kv"><span class="k">Preço de venda (R$/m²)</span><span class="v" id="out-vendaM2"></span></div>
+          <div class="kv"><span class="k">Markup</span><span class="v" id="out-markup"></span></div>
+          <div class="kv"><span class="k">Quantidade com perda (m²)</span><span class="v" id="out-qtdPerda"></span></div>
+        </div>
+        <div class="card">
+          <h2>Composição do custo</h2>
+          <div class="kv"><span class="k">Custo sem imposto</span><span class="v" id="out-custoSemImposto"></span></div>
+          <div class="kv"><span class="k">PIS</span><span class="v" id="out-pis"></span></div>
+          <div class="kv"><span class="k">COFINS</span><span class="v" id="out-cofins"></span></div>
+          <div class="kv"><span class="k" id="out-icmsLabel">ICMS</span><span class="v" id="out-icms"></span></div>
+          <div class="kv"><span class="k">DIFAL</span><span class="v" id="out-difal2"></span></div>
+          <div class="kv"><span class="k">Frete</span><span class="v" id="out-frete"></span></div>
+          <div class="kv"><span class="k">Taxa do cartão</span><span class="v" id="out-taxaCartaoValor"></span></div>
+          <div class="kv total"><span class="k">Custo total</span><span class="v" id="out-custoTotal"></span></div>
+          <div class="kv" id="row-lucro"><span class="k">Lucro</span><span class="v" id="out-lucro"></span></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:20px">
+        <h2>Para onde vai o preço final</h2>
+        <p class="hint" id="viz-sub"></p>
+        <div class="viz-bar" id="viz-bar" role="img" aria-label="Composição do preço final"></div>
+        <div class="viz-legend" id="viz-legend"></div>
+        <p class="warn hidden" id="viz-prejuizo"></p>
+      </div>
+
+      <details>
+        <summary>Memória de cálculo da importação (1 container)</summary>
+        <div class="table-wrap" id="out-importacao"></div>
+      </details>
+    </section>
+
+    <!-- ---------- ABA CONFIGURAÇÕES ---------- -->
+    <section id="tab-config" class="hidden">
+      <div class="toolbar">
+        <button class="btn primary" id="cfgSalvar">Salvar configurações</button>
+        <button class="btn" id="cfgExportar">Exportar (JSON)</button>
+        <button class="btn" id="cfgImportar">Importar (JSON)</button>
+        <input type="file" id="cfgArquivo" accept="application/json" class="hidden">
+        <button class="btn danger" id="cfgRestaurar">Restaurar padrão</button>
+        <span class="status" id="cfgStatus"></span>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h2>Parâmetros gerais</h2>
+          <div class="field"><label>Dólar comercial (R$)</label><input type="number" step="0.0001" data-cfg="dolar" data-type="num"></div>
+          <div class="field"><label>Preço por dentro (%)<small>Parte faturada na importação</small></label><input type="number" step="1" min="0" max="100" data-cfg="dentro" data-type="pct"></div>
+          <div class="field"><label>Preço por fora (%)</label><input type="number" id="cfg-fora" disabled></div>
+          <div class="field"><label>Frete internacional (US$)<small>Por container</small></label><input type="number" step="1" data-cfg="freteInternacionalUSD" data-type="num"></div>
+          <div class="field"><label>Seguro internacional (%)<small>Sobre VMCV + frete</small></label><input type="number" step="0.01" data-cfg="seguroPct" data-type="pct"></div>
+
+          <h3>Despesas nacionais (R$ por container)</h3>
+          <div class="field"><label>AFRMM — fator em US$<small>AFRMM = fator × dólar (padrão 800 × 25% = 200)</small></label><input type="number" step="1" data-cfg="despesasNacionais.afrmmFatorUSD" data-type="num"></div>
+          <div class="field"><label>Transporte nacional</label><input type="number" step="1" data-cfg="despesasNacionais.transporteNacional" data-type="num"></div>
+          <div class="field"><label>Armazenagem destino</label><input type="number" step="1" data-cfg="despesasNacionais.armazenagemDestino" data-type="num"></div>
+          <div class="field"><label>Armazenagem zona secundária</label><input type="number" step="1" data-cfg="despesasNacionais.armazenagemZonaSecundaria" data-type="num"></div>
+          <div class="field"><label>Despachante</label><input type="number" step="1" data-cfg="despesasNacionais.despachante" data-type="num"></div>
+          <div class="field"><label>Despesas extras</label><input type="number" step="1" data-cfg="despesasNacionais.despesasExtras" data-type="num"></div>
+
+          <h3>Entreposto aduaneiro</h3>
+          <div class="field"><label>Entrepostado por quantos dias</label><input type="number" step="1" min="0" data-cfg="entreposto.dias" data-type="num"></div>
+          <div class="field"><label>Armazenagem (% do VMLD por período de 10 dias)</label><input type="number" step="0.01" data-cfg="entreposto.taxaArmazenagemPor10Dias" data-type="pct"></div>
+          <div class="field"><label>Movimentação (R$)</label><input type="number" step="0.01" data-cfg="entreposto.movimentacao" data-type="num"></div>
+          <div class="field"><label>Pesagem por container (R$)</label><input type="number" step="0.01" data-cfg="entreposto.pesagem" data-type="num"></div>
+          <div class="field"><label>Desunitização — container 20' (R$)</label><input type="number" step="0.01" data-cfg="entreposto.desunitizacao" data-type="num"></div>
+          <div class="field"><label>Emissão de certificados (R$)</label><input type="number" step="0.01" data-cfg="entreposto.certificados" data-type="num"></div>
+          <div class="field"><label>Reportagem fotográfica por lote (R$)</label><input type="number" step="0.01" data-cfg="entreposto.reportagemFotografica" data-type="num"></div>
+
+          <h3>Impostos na venda</h3>
+          <div class="field"><label>PIS (%)</label><input type="number" step="0.01" data-cfg="saida.pis" data-type="pct"></div>
+          <div class="field"><label>COFINS (%)</label><input type="number" step="0.01" data-cfg="saida.cofins" data-type="pct"></div>
+          <div class="field"><label>ICMS efetivo — venda em MG (%)<small>Padrão 18% saída − 4% crédito</small></label><input type="number" step="0.01" data-cfg="saida.icmsEfetivoMG" data-type="pct"></div>
+          <div class="field"><label>ICMS efetivo — venda fora de MG (%)<small>Regime especial</small></label><input type="number" step="0.01" data-cfg="saida.icmsEfetivoForaMG" data-type="pct"></div>
+          <div class="field"><label>ICMS nominal MG (%) <small>Só informativo, aparece nas notas</small></label><input type="number" step="0.01" data-cfg="saida.icmsNominalMG" data-type="pct"></div>
+          <div class="field"><label>ICMS nominal fora de MG (%)</label><input type="number" step="0.01" data-cfg="saida.icmsNominalForaMG" data-type="pct"></div>
+
+          <h3>Cartão</h3>
+          <div class="field"><label>Antecipação base no parcelado (%)</label><input type="number" step="0.01" data-cfg="cartao.antecipacaoBase" data-type="pct"></div>
+          <div class="field"><label>Acréscimo por parcela (%)</label><input type="number" step="0.01" data-cfg="cartao.porParcela" data-type="pct"></div>
+          <div class="table-wrap" id="cfg-mdr"></div>
+        </div>
+
+        <div class="card">
+          <h2>Classes fiscais e impostos de importação</h2>
+          <div class="table-wrap" id="cfg-classes"></div>
+          <p class="hint">O NCM mostrado na calculadora vem da classe fiscal do produto.</p>
+
+          <h3>Produtos</h3>
+          <p class="hint">Custo FOB em US$/m², capacidade em m² por container. Para incluir um produto, clique em "Adicionar".</p>
+          <div class="table-wrap" id="cfg-produtos"></div>
+          <button class="btn small" id="cfgAddProduto" style="margin-top:8px">+ Adicionar produto</button>
+
+          <details>
+            <summary>DIFAL por UF</summary>
+            <p class="hint">Alíquota interna de cada estado e DIFAL (interna − 4% interestadual). Vale só para cliente não contribuinte.</p>
+            <div class="table-wrap" id="cfg-difal"></div>
+          </details>
+
+          <details>
+            <summary>Senha de administrador</summary>
+            <p class="hint">A senha é validada no navegador (hash SHA-256 gravado no arquivo <code>app.js</code>, constante <code>SENHA_HASH</code>). Gere o hash da nova senha abaixo e substitua no arquivo antes de publicar.</p>
+            <div class="field"><label>Nova senha</label><input type="text" id="novaSenha"></div>
+            <button class="btn small" id="gerarHash">Gerar hash</button>
+            <p class="hint" style="word-break:break-all" id="hashSaida"></p>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer>Calculadora Glass Mais — lógica baseada na planilha "MaxiBuild Vidro Automática Corte". As configurações ficam salvas neste navegador; use Exportar/Importar para levar para outro.</footer>
+</div>
+
+<script src="defaults.js"></script>
+<script src="calc.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
