@@ -1,5 +1,5 @@
 /* =====================================================================
- * app.js — Interface da Calculadora Glass Mais
+ * app.js — Interface da Calculadora MaisGlass
  * - Login por senha (hash SHA-256; ver SENHA_HASH)
  * - Aba Calculadora: entradas B4:B13 → saídas B14:B18 + detalhamento
  * - Aba Configurações: tudo que na planilha fica em VL 4+4 / Produtos /
@@ -34,37 +34,86 @@
     var e = document.createElement(tag);
     if (attrs) Object.keys(attrs).forEach(function (k) {
       if (k === 'text') e.textContent = attrs[k];
-      else if (k === 'html') e.innerHTML = attrs[k];
       else if (k.indexOf('on') === 0) e.addEventListener(k.slice(2), attrs[k]);
       else e.setAttribute(k, attrs[k]);
     });
     (children || []).forEach(function (c) { e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
     return e;
   }
+  /* SHA-256: usa Web Crypto quando disponível (contexto seguro); senão, implementação local. */
   function sha256(text) {
-    var data = new TextEncoder().encode(text);
-    return crypto.subtle.digest('SHA-256', data).then(function (buf) {
-      return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
-    });
+    var bytes = utf8Bytes(text);
+    if (typeof crypto !== 'undefined' && crypto.subtle && typeof crypto.subtle.digest === 'function') {
+      try {
+        return crypto.subtle.digest('SHA-256', bytes).then(function (buf) { return hex(new Uint8Array(buf)); })
+          .catch(function () { return hex(sha256Puro(bytes)); });
+      } catch (e) { /* cai no fallback */ }
+    }
+    return Promise.resolve(hex(sha256Puro(bytes)));
+  }
+  function hex(arr) { return Array.prototype.map.call(arr, function (b) { return ('0' + b.toString(16)).slice(-2); }).join(''); }
+  function utf8Bytes(str) {
+    if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(str);
+    var u = unescape(encodeURIComponent(str)), out = new Uint8Array(u.length);
+    for (var i = 0; i < u.length; i++) out[i] = u.charCodeAt(i);
+    return out;
+  }
+  function sha256Puro(msg) {
+    var K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+    var H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+    var l = msg.length, padLen = ((l + 9 + 63) >> 6) << 6, p = new Uint8Array(padLen);
+    p.set(msg); p[l] = 0x80;
+    var bits = l * 8; p[padLen - 4] = (bits >>> 24) & 255; p[padLen - 3] = (bits >>> 16) & 255; p[padLen - 2] = (bits >>> 8) & 255; p[padLen - 1] = bits & 255;
+    var w = new Uint32Array(64);
+    function rotr(x, n) { return (x >>> n) | (x << (32 - n)); }
+    for (var off = 0; off < padLen; off += 64) {
+      for (var i = 0; i < 16; i++) w[i] = (p[off + i*4] << 24) | (p[off + i*4+1] << 16) | (p[off + i*4+2] << 8) | p[off + i*4+3];
+      for (i = 16; i < 64; i++) {
+        var s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >>> 3);
+        var s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >>> 10);
+        w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (i = 0; i < 64; i++) {
+        var S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25), ch = (e & f) ^ (~e & g);
+        var t1 = (h + S1 + ch + K[i] + w[i]) >>> 0;
+        var S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22), maj = (a & b) ^ (a & c) ^ (b & c);
+        var t2 = (S0 + maj) >>> 0;
+        h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+      }
+      H[0] = (H[0]+a)>>>0; H[1] = (H[1]+b)>>>0; H[2] = (H[2]+c)>>>0; H[3] = (H[3]+d)>>>0; H[4] = (H[4]+e)>>>0; H[5] = (H[5]+f)>>>0; H[6] = (H[6]+g)>>>0; H[7] = (H[7]+h)>>>0;
+    }
+    var out = new Uint8Array(32);
+    for (i = 0; i < 8; i++) { out[i*4] = H[i] >>> 24; out[i*4+1] = (H[i] >>> 16) & 255; out[i*4+2] = (H[i] >>> 8) & 255; out[i*4+3] = H[i] & 255; }
+    return out;
   }
 
   /* ---------------- persistência ---------------- */
+  function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+  /* Completa chaves ausentes com o padrão (só onde o tipo bate) e devolve uma cópia. */
   function migrar(cfg) {
-    // Garante que chaves novas do padrão existam em configs antigas salvas.
-    var base = clone(DEF.config);
+    if (!isObj(cfg)) throw new Error('Configuração deve ser um objeto JSON.');
+    var out = clone(cfg);
     function merge(dst, src) {
       Object.keys(src).forEach(function (k) {
-        if (dst[k] === undefined) dst[k] = src[k];
-        else if (src[k] && typeof src[k] === 'object' && !Array.isArray(src[k]) && dst[k] && typeof dst[k] === 'object') merge(dst[k], src[k]);
+        if (dst[k] === undefined) dst[k] = clone(src[k]);
+        else if (isObj(src[k]) && isObj(dst[k])) merge(dst[k], src[k]);
       });
     }
-    merge(cfg, base);
-    return cfg;
+    merge(out, DEF.config);
+    return out;
+  }
+  /* Migra + valida; lança Error com a lista de problemas. */
+  function normalizarConfig(cfg) {
+    var c = migrar(cfg);
+    var erros = CALC.validarConfig(c);
+    if (erros.length) throw new Error(erros.slice(0, 5).join(' ') + (erros.length > 5 ? ' (+' + (erros.length - 5) + ')' : ''));
+    return c;
   }
   function carregarConfig() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return migrar(JSON.parse(raw));
+      if (raw) return normalizarConfig(JSON.parse(raw));
     } catch (e) { console.warn('Config salva inválida; usando padrão.', e); }
     return clone(DEF.config);
   }
@@ -82,8 +131,12 @@
         try { sessionStorage.setItem(SESSION_KEY, '1'); } catch (e) { /* ignore */ }
         mostrarApp();
       } else {
+        $('loginErro').textContent = 'Senha incorreta.';
         $('loginErro').classList.remove('hidden');
       }
+    }).catch(function (e) {
+      $('loginErro').textContent = 'Não foi possível verificar a senha: ' + e.message;
+      $('loginErro').classList.remove('hidden');
     });
   }
   function sair() { try { sessionStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ } location.reload(); }
@@ -94,11 +147,14 @@
   }
 
   /* ---------------- abas ---------------- */
+  var abaAtual = 'calc';
   function mostrarAba(nome) {
+    if (abaAtual === 'config' && nome !== 'config' && draft) lerCamposSimples(); // guarda o que foi digitado
+    abaAtual = nome;
     document.querySelectorAll('nav.tabs button').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === nome); });
     $('tab-calc').classList.toggle('hidden', nome !== 'calc');
     $('tab-config').classList.toggle('hidden', nome !== 'config');
-    if (nome === 'config') { draft = clone(config); renderConfig(); }
+    if (nome === 'config') { if (!draft) draft = clone(config); renderConfig(); }
   }
 
   /* ---------------- aba calculadora ---------------- */
@@ -120,14 +176,14 @@
     return {
       contribuinte: $('in-contribuinte').value === 'sim',
       produto: $('in-produto').value,
-      perda: (parseFloat($('in-perda').value) || 0) / 100,
-      precoBase: parseFloat($('in-precoBase').value) || 0,
-      quantidade: parseFloat($('in-quantidade').value) || 0,
-      frete: parseFloat($('in-frete').value) || 0,
+      perda: $('in-perda').value === '' ? 0 : Number($('in-perda').value) / 100,
+      precoBase: $('in-precoBase').value,
+      quantidade: $('in-quantidade').value,
+      frete: $('in-frete').value === '' ? 0 : $('in-frete').value,
       pagamento: $('in-pagamento').value,
       bandeira: $('in-bandeira').value,
-      parcelas: parseInt($('in-parcelas').value, 10) || 1
-      , uf: $('in-uf').value
+      parcelas: $('in-parcelas').value,
+      uf: $('in-uf').value
     };
   }
 
@@ -152,12 +208,12 @@
     $('in-parcelas').disabled = !parcelado;
     var r;
     try { r = CALC.calcular(config, inp); }
-    catch (e) { $('out-precoFinal').textContent = 'Erro'; $('out-notas').textContent = e.message; return; }
+    catch (e) { limparResultados(e.message); return; }
 
     $('hdrDolar').textContent = 'Dólar ' + numFmt(config.dolar, 2);
     $('out-precoFinal').textContent = brl(r.precoFinal);
     $('out-precoFinal2').textContent = brl(r.precoFinal);
-    $('out-precoM2').textContent = brl(r.precoVendaM2) + ' por m² · ' + numFmt(inp.quantidade, 2) + ' m²';
+    $('out-precoM2').textContent = brl(r.precoVendaM2) + ' por m² · ' + numFmt(Number(inp.quantidade), 2) + ' m²';
     $('out-produto').textContent = r.produto.nome;
     $('out-ncm').textContent = r.ncm;
     $('out-taxaCartao').textContent = pct(r.taxaCartao);
@@ -233,6 +289,21 @@
   }
   function esconderTip() { if (tipEl) tipEl.style.display = 'none'; }
 
+  function limparResultados(msg) {
+    document.querySelectorAll('#tab-calc .kv .v, #tab-calc .result-hero .value').forEach(function (n) {
+      if (n.querySelector('#out-ncm')) { $('out-ncm').textContent = '—'; } else { n.textContent = '—'; }
+    });
+    $('out-precoM2').textContent = '';
+    $('out-icmsLabel').textContent = 'ICMS';
+    $('row-lucro').classList.remove('neg');
+    $('out-notas').innerHTML = '';
+    $('out-notas').appendChild(el('p', { class: 'warn', text: 'Não foi possível calcular: ' + msg }));
+    $('out-importacao').innerHTML = '';
+    $('viz-bar').innerHTML = ''; $('viz-legend').innerHTML = '';
+    $('viz-sub').textContent = 'Corrija as entradas para ver a composição.';
+    $('viz-prejuizo').classList.add('hidden');
+  }
+
   function renderImportacao(i) {
     var linhas = [
       ['Capacidade do container', numFmt(i.capacidade, 2) + ' m²'],
@@ -275,11 +346,10 @@
 
   function lerCamposSimples() {
     document.querySelectorAll('[data-cfg]').forEach(function (inp) {
-      var v = parseFloat(inp.value); if (!isFinite(v)) v = 0;
+      var v = inp.value === '' ? NaN : Number(inp.value);
       if (inp.getAttribute('data-type') === 'pct') v = v / 100;
       setPath(draft, inp.getAttribute('data-cfg'), v);
     });
-    draft.dentro = Math.min(1, Math.max(0, draft.dentro));
   }
 
   function inputCell(value, onChange, opts) {
@@ -298,10 +368,10 @@
           el('td', {}, [el('strong', { text: k })]),
           inputCell(c.nome, function (v) { c.nome = v; }, { type: 'text' }),
           inputCell(c.ncm, function (v) { c.ncm = v.trim(); }, { type: 'text' }),
-          inputCell(c.ii * 100, function (v) { c.ii = (parseFloat(v) || 0) / 100; }),
-          inputCell(c.ipi * 100, function (v) { c.ipi = (parseFloat(v) || 0) / 100; }),
-          inputCell(c.pis * 100, function (v) { c.pis = (parseFloat(v) || 0) / 100; }),
-          inputCell(c.cofins * 100, function (v) { c.cofins = (parseFloat(v) || 0) / 100; })
+          inputCell(c.ii * 100, function (v) { c.ii = (v === '' ? NaN : Number(v)) / 100; }),
+          inputCell(c.ipi * 100, function (v) { c.ipi = (v === '' ? NaN : Number(v)) / 100; }),
+          inputCell(c.pis * 100, function (v) { c.pis = (v === '' ? NaN : Number(v)) / 100; }),
+          inputCell(c.cofins * 100, function (v) { c.cofins = (v === '' ? NaN : Number(v)) / 100; })
         ]);
       }))
     ]);
@@ -319,8 +389,8 @@
         var rm = el('button', { class: 'btn small danger', text: 'Remover', onclick: function () { draft.produtos.splice(idx, 1); renderProdutos(); } });
         return el('tr', {}, [
           inputCell(p.nome, function (v) { p.nome = v.trim(); }, { type: 'text', wide: true }),
-          inputCell(p.custo, function (v) { p.custo = parseFloat(v) || 0; }, { step: '0.01' }),
-          inputCell(p.capacidade, function (v) { p.capacidade = parseFloat(v) || 0; }, { step: '0.5' }),
+          inputCell(p.custo, function (v) { p.custo = v === '' ? NaN : Number(v); }, { step: '0.01' }),
+          inputCell(p.capacidade, function (v) { p.capacidade = v === '' ? NaN : Number(v); }, { step: '0.5' }),
           el('td', {}, [sel]),
           el('td', {}, [rm])
         ]);
@@ -335,7 +405,7 @@
       el('tbody', {}, Object.keys(draft.cartao.mdr).map(function (b) {
         var f = draft.cartao.mdr[b];
         return el('tr', {}, [el('td', { text: b })].concat([0, 1, 2].map(function (i) {
-          return inputCell(Math.round(f[i] * 1e6) / 1e4, function (v) { f[i] = (parseFloat(v) || 0) / 100; }, { step: '0.01' });
+          return inputCell(Math.round(f[i] * 1e6) / 1e4, function (v) { f[i] = (v === '' ? NaN : Number(v)) / 100; }, { step: '0.01' });
         })));
       }))
     ]);
@@ -349,8 +419,8 @@
         var d = draft.difal[uf];
         return el('tr', {}, [
           el('td', { text: uf }),
-          inputCell(Math.round(d[0] * 1e6) / 1e4, function (v) { d[0] = (parseFloat(v) || 0) / 100; }, { step: '0.5' }),
-          inputCell(Math.round(d[1] * 1e6) / 1e4, function (v) { d[1] = (parseFloat(v) || 0) / 100; }, { step: '0.5' })
+          inputCell(Math.round(d[0] * 1e6) / 1e4, function (v) { d[0] = (v === '' ? NaN : Number(v)) / 100; }, { step: '0.5' }),
+          inputCell(Math.round(d[1] * 1e6) / 1e4, function (v) { d[1] = (v === '' ? NaN : Number(v)) / 100; }, { step: '0.5' })
         ]);
       }))
     ]);
@@ -358,18 +428,8 @@
   }
 
   function validarDraft() {
-    var nomes = {};
-    for (var i = 0; i < draft.produtos.length; i++) {
-      var p = draft.produtos[i];
-      if (!p.nome) return 'Produto sem nome na linha ' + (i + 1) + '.';
-      if (nomes[p.nome]) return 'Produto duplicado: ' + p.nome;
-      nomes[p.nome] = true;
-      if (!(p.capacidade > 0)) return 'Capacidade inválida em "' + p.nome + '".';
-      if (!draft.classes[p.classe]) return 'Classe inválida em "' + p.nome + '".';
-    }
-    if (!(draft.dolar > 0)) return 'Dólar deve ser maior que zero.';
-    if (draft.produtos.length === 0) return 'Cadastre pelo menos um produto.';
-    return null;
+    var erros = CALC.validarConfig(draft);
+    return erros.length ? erros.slice(0, 4).join(' ') + (erros.length > 4 ? ' (+' + (erros.length - 4) + ' problemas)' : '') : null;
   }
 
   function status(msg, cls) { var s = $('cfgStatus'); s.textContent = msg; s.className = 'status ' + (cls || ''); }
@@ -379,26 +439,43 @@
     var erro = validarDraft();
     if (erro) { status(erro, 'err'); return; }
     config = clone(draft);
+    draft = clone(config);
     status(salvarConfig(config) ? 'Configurações salvas.' : 'Salvo só nesta sessão (navegador sem armazenamento).', 'ok');
     preencherListas();
     recalcular();
   }
 
+  function autoSalvar() {
+    if (!draft) return;
+    lerCamposSimples();
+    var erro = validarDraft();
+    if (erro) { status('Não salvo — ' + erro, 'err'); return; }
+    config = clone(draft);
+    var ok = salvarConfig(config);
+    preencherListas();
+    recalcular();
+    var hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    status(ok ? 'Salvo automaticamente às ' + hora + '.' : 'Aplicado só nesta sessão (navegador sem armazenamento).', 'ok');
+  }
+
   function exportar() {
     lerCamposSimples();
+    var erro = validarDraft();
+    if (erro) { status('Corrija antes de exportar: ' + erro, 'err'); return; }
     var blob = new Blob([JSON.stringify(draft, null, 2)], { type: 'application/json' });
-    var a = el('a', { href: URL.createObjectURL(blob), download: 'glassmais-config.json' });
+    var a = el('a', { href: URL.createObjectURL(blob), download: 'maisglass-config.json' });
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }
 
   function importar(file) {
     var fr = new FileReader();
     fr.onload = function () {
-      try {
-        draft = migrar(JSON.parse(fr.result));
-        renderConfig();
-        status('Arquivo carregado. Clique em "Salvar configurações" para aplicar.', 'ok');
-      } catch (e) { status('Arquivo inválido: ' + e.message, 'err'); }
+      var candidato;
+      try { candidato = normalizarConfig(JSON.parse(fr.result)); }
+      catch (e) { status('Arquivo inválido: ' + e.message, 'err'); return; }
+      draft = candidato;
+      renderConfig();
+      status('Arquivo carregado. Clique em "Salvar configurações" para aplicar.', 'ok');
     };
     fr.readAsText(file);
   }
@@ -427,6 +504,11 @@
     $('logoutBtn').addEventListener('click', sair);
 
     $('cfgSalvar').addEventListener('click', salvar);
+    // Salvamento automático: qualquer alteração na aba Configurações valida e salva sozinha.
+    var autoTimer = null;
+    function agendarAutoSalvar() { clearTimeout(autoTimer); autoTimer = setTimeout(autoSalvar, 500); }
+    $('tab-config').addEventListener('input', agendarAutoSalvar);
+    $('tab-config').addEventListener('change', agendarAutoSalvar);
     $('cfgExportar').addEventListener('click', exportar);
     $('cfgImportar').addEventListener('click', function () { $('cfgArquivo').click(); });
     $('cfgArquivo').addEventListener('change', function () { if (this.files[0]) importar(this.files[0]); this.value = ''; });
@@ -440,7 +522,8 @@
       draft.dentro = Math.min(1, Math.max(0, (parseFloat(this.value) || 0) / 100)); atualizarFora();
     });
     $('gerarHash').addEventListener('click', function () {
-      sha256($('novaSenha').value).then(function (h) { $('hashSaida').textContent = 'SENHA_HASH = \'' + h + '\''; });
+      sha256($('novaSenha').value).then(function (h) { $('hashSaida').textContent = 'SENHA_HASH = \'' + h + '\''; })
+        .catch(function (e) { $('hashSaida').textContent = 'Erro ao gerar hash: ' + e.message; });
     });
   }
 

@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Calculadora Glass Mais</title>
+<title>MaisGlass — Calculadora</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 104 128'%3E%3Crect x='34' y='0' width='66' height='96' rx='8' fill='%238a8f98'/%3E%3Crect x='4' y='16' width='66' height='96' rx='8' fill='%231c1f24'/%3E%3Cpath d='M16 28 L32 28 L20 68 L12 68 Z' fill='%23fff' opacity='.3'/%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #f3f5f8; --card: #ffffff; --ink: #172033; --muted: #5b6577; --line: #dde3ec;
-    --brand: #0f4c81; --brand-ink: #ffffff; --accent: #e8f1fb; --purple: #f3ecff; --purple-ink: #5b2ca0;
+    --brand: #1c1f24; --brand-ink: #ffffff; --accent: #eceef2; --gray: #8a8f98; --purple: #f3ecff; --purple-ink: #5b2ca0;
     --ok: #1c7c54; --warn: #b45309; --danger: #b42318; --radius: 12px;
   }
   * { box-sizing: border-box; }
@@ -49,7 +50,7 @@
   input:disabled, select:disabled { background: #f1f3f6; color: #9aa3b2; }
   .purple input, .purple select { background: var(--purple); border-color: #d9c8f5; }
   .purple input:disabled, .purple select:disabled { background: #f1f3f6; border-color: var(--line); }
-  .result-hero { background: var(--brand); color: #fff; border-radius: var(--radius); padding: 18px 20px; margin-bottom: 14px; }
+  .result-hero { background: linear-gradient(135deg, #1c1f24, #3a3f47); color: #fff; border-radius: var(--radius); padding: 18px 20px; margin-bottom: 14px; }
   .result-hero .label { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; opacity: .85; }
   .result-hero .value { font-size: 34px; font-weight: 700; margin-top: 4px; }
   .result-hero .sub { opacity: .9; margin-top: 4px; font-size: 14px; }
@@ -57,9 +58,9 @@
   .kv:last-child { border-bottom: 0; }
   .kv .k { color: var(--muted); }
   .kv .v { font-variant-numeric: tabular-nums; font-weight: 600; }
-  .kv.total .v { color: var(--brand); }
+  .kv.total .v { color: var(--ink); }
   .kv.neg .v { color: var(--danger); }
-  .chip { display: inline-block; background: var(--accent); color: var(--brand); border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 600; }
+  .chip { display: inline-block; background: var(--accent); color: var(--ink); border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 600; }
   .notes { background: #fbfcfe; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 14px; color: var(--muted); }
   .notes p { margin: 4px 0; }
   .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; align-items: center; }
@@ -83,20 +84,45 @@
   details { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-top: 12px; background: #fff; }
   details summary { cursor: pointer; font-weight: 600; }
   .hint { color: var(--muted); font-size: 13px; }
-  .login { max-width: 380px; margin: 80px auto; }
+  .login { max-width: 400px; margin: 70px auto; text-align: center; }
+  .login .logo { display: inline-flex; align-items: center; gap: 12px; margin: 6px 0 14px; }
+  .login .logo-mark { width: 44px; height: 54px; }
+  .login .logo-word { font-size: 34px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+  .login input { text-align: center; }
+  .logo-word .m { color: var(--gray); } .logo-word .g { color: var(--ink); }
+  header .logo { display: flex; align-items: center; gap: 10px; }
+  header .logo-mark { width: 26px; height: 32px; }
+  header .logo-word { font-size: 20px; font-weight: 700; letter-spacing: -.5px; }
+  header .logo-word .m { color: #b5b9c0; } header .logo-word .g { color: #fff; }
+  header .logo-mark rect:nth-of-type(1) { fill: #8a8f98; }
+  header .logo-mark rect:nth-of-type(2) { fill: #ffffff; }
+  header .logo-mark rect:nth-of-type(3) { stroke: var(--brand); }
+  header .logo-mark path { fill: #1c1f24; opacity: .18; }
+  header .logo-sub { font-size: 12px; color: #b5b9c0; margin-left: 6px; letter-spacing: .4px; text-transform: uppercase; }
   .login h2 { margin-top: 0; }
   .login .btn { width: 100%; margin-top: 12px; }
   .hidden { display: none !important; }
   .warn { color: var(--warn); font-size: 13px; }
   footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
+  .result-hero .value { font-size: clamp(24px, 6vw, 34px); overflow-wrap: anywhere; }
+  @media (max-width: 600px) {
+    header { flex-wrap: wrap; padding: 12px 14px; gap: 10px; }
+    header h1 { font-size: 16px; }
+    main { padding: 12px; }
+    .card { padding: 14px; }
+    .field { grid-template-columns: 1fr; gap: 4px; padding: 8px 0; }
+    input, select { font-size: 16px; } /* evita zoom automático no iOS */
+    .kv { gap: 10px; } .kv .v { text-align: right; }
+    .toolbar .btn { flex: 1 1 auto; }
+  }
 </style>
 </head>
 <body>
 
 <!-- ===================== LOGIN ===================== -->
 <section id="login" class="login card">
-  <h2>Calculadora Glass Mais</h2>
-  <p class="hint">Área restrita. Informe a senha de administrador.</p>
+  <div class="logo"><svg class="logo-mark" viewBox="0 0 104 128" aria-hidden="true"><rect x="34" y="0" width="66" height="96" rx="8" fill="#8a8f98"/><rect x="4" y="16" width="66" height="96" rx="8" fill="#1c1f24"/><rect x="4" y="16" width="66" height="96" rx="8" fill="none" stroke="#f3f5f8" stroke-width="3"/><path d="M16 28 L32 28 L20 68 L12 68 Z" fill="#fff" opacity=".28"/><path d="M38 28 L44 28 L32 68 L26 68 Z" fill="#fff" opacity=".18"/></svg><span class="logo-word"><span class="m">Mais</span><span class="g">Glass</span></span></div>
+  <p class="hint">Calculadora de preços · área restrita</p>
   <input type="password" id="loginSenha" placeholder="Senha" autocomplete="current-password">
   <button class="btn primary" id="loginBtn">Entrar</button>
   <p id="loginErro" class="status err hidden">Senha incorreta.</p>
@@ -105,7 +131,7 @@
 <!-- ===================== APP ===================== -->
 <div id="app" class="hidden">
   <header>
-    <h1>Calculadora Glass Mais</h1>
+    <div class="logo"><svg class="logo-mark" viewBox="0 0 104 128" aria-hidden="true"><rect x="34" y="0" width="66" height="96" rx="8" fill="#8a8f98"/><rect x="4" y="16" width="66" height="96" rx="8" fill="#1c1f24"/><rect x="4" y="16" width="66" height="96" rx="8" fill="none" stroke="#f3f5f8" stroke-width="3"/><path d="M16 28 L32 28 L20 68 L12 68 Z" fill="#fff" opacity=".28"/><path d="M38 28 L44 28 L32 68 L26 68 Z" fill="#fff" opacity=".18"/></svg><span class="logo-word"><span class="m">Mais</span><span class="g">Glass</span></span><span class="logo-sub">Calculadora</span></div>
     <span class="chip" id="hdrDolar"></span>
     <span class="spacer"></span>
     <button id="logoutBtn">Sair</button>
@@ -194,7 +220,7 @@
     <!-- ---------- ABA CONFIGURAÇÕES ---------- -->
     <section id="tab-config" class="hidden">
       <div class="toolbar">
-        <button class="btn primary" id="cfgSalvar">Salvar configurações</button>
+        <button class="btn primary" id="cfgSalvar">Salvar agora</button>
         <button class="btn" id="cfgExportar">Exportar (JSON)</button>
         <button class="btn" id="cfgImportar">Importar (JSON)</button>
         <input type="file" id="cfgArquivo" accept="application/json" class="hidden">
@@ -269,7 +295,7 @@
       </div>
     </section>
   </main>
-  <footer>Calculadora Glass Mais — lógica baseada na planilha "MaxiBuild Vidro Automática Corte". As configurações ficam salvas neste navegador; use Exportar/Importar para levar para outro.</footer>
+  <footer>MaisGlass — lógica baseada na planilha "MaxiBuild Vidro Automática Corte". As configurações salvam automaticamente e ficam neste navegador/aparelho; use Exportar/Importar para levar para outro.</footer>
 </div>
 
 <script src="defaults.js"></script>

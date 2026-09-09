@@ -1,5 +1,5 @@
 /* =====================================================================
- * defaults.js — Configuração padrão da Calculadora Glass Mais
+ * defaults.js — Configuração padrão da Calculadora MaisGlass
  * Espelha a planilha "MaxiBuild Vidro Automatica Corte atualizado.xlsx"
  * (abas Produtos, Config, DIFAL, VL 4+4). Tudo aqui pode ser alterado
  * na aba "Configurações" do programa; este arquivo é o "restaurar padrão".
@@ -16,10 +16,10 @@
     freteInternacionalUSD: 2500, // VL 4+4!D10
     seguroPct: 0.005,         // VL 4+4!G17 = 0,5% de (VMCV + frete)
 
-    /* --- Classes fiscais (Produtos!N:O) + NCM informado por Gabriel --- */
+    /* --- Classes fiscais (Produtos!N:O; VL 4+4!C17 aponta LG→O2 25%, CF→O9 25%, MI→O14 9%) + NCM informado por Gabriel --- */
     classes: {
       LG: { nome: 'Laminado',            ncm: '7007.29.00', ii: 0.25, ipi: 0.065, pis: 0.021, cofins: 0.0965 },
-      CF: { nome: 'Float incolor',       ncm: '7005.29.00', ii: 0.09, ipi: 0.065, pis: 0.021, cofins: 0.0965 },
+      CF: { nome: 'Float incolor',       ncm: '7005.29.00', ii: 0.25, ipi: 0.065, pis: 0.021, cofins: 0.0965 },
       MI: { nome: 'Monolítico colorido/refletivo', ncm: '7005.21.00', ii: 0.09, ipi: 0.065, pis: 0.021, cofins: 0.0965 }
     },
 

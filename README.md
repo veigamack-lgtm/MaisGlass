@@ -1,4 +1,4 @@
-# Calculadora Glass Mais
+# MaisGlass — Calculadora
 
 Calculadora de precificação de vidro importado, portada da planilha
 **"MaxiBuild Vidro Automatica Corte atualizado.xlsx"**. Página única, sem
@@ -23,23 +23,29 @@ build, sem servidor: abre direto no navegador ou publica no GitHub Pages.
 Também funciona abrindo `index.html` direto do computador ou em qualquer
 hospedagem estática (Netlify, Vercel, Cloudflare Pages).
 
-## Senha
+## Senha (bloqueio local, não é autenticação)
 
-Senha padrão: **`glassmais`**. Para trocar:
+Senha padrão: **`glassmais`** — troque antes de divulgar o link:
 
 1. Aba Configurações → "Senha de administrador" → digite a nova senha → "Gerar hash".
 2. Copie o hash e substitua a constante `SENHA_HASH` no início de `app.js`.
 3. Publique de novo.
 
-A senha é verificada no navegador (hash SHA-256). Isso barra quem não tem
-a senha, mas não é segurança de servidor: quem abrir o código-fonte vê o
-hash (não a senha). Se um dia precisar de login de verdade e configurações
-compartilhadas entre usuários, o caminho é um backend simples (ex.: Supabase).
+O que isso é: um bloqueio contra acesso casual. A verificação acontece no
+navegador (SHA-256, com Web Crypto ou implementação local quando o contexto
+não é seguro). Quem abrir o código vê o hash e pode tentar senhas offline;
+quem souber mexer no console consegue pular a tela. Portanto, **preços e
+configurações publicados aqui não devem ser tratados como confidenciais**.
+Login de verdade e configurações compartilhadas exigem um backend simples
+(ex.: Supabase).
 
 ## Onde ficam as configurações
 
-Na aba Configurações tudo é editável e fica salvo em `localStorage` do
-navegador (chave `glassmais.config.v1`). Para levar para outro computador
+Na aba Configurações tudo é editável e **salva automaticamente** (meio
+segundo depois de digitar, se a configuração for válida; o status no topo
+confirma a hora). Fica em `localStorage` do navegador (chave
+`glassmais.config.v1`), ou seja, **por aparelho**: o dólar mudado no
+computador não aparece sozinho no celular. Para levar para outro computador
 ou outra pessoa: **Exportar (JSON)** → **Importar (JSON)** → Salvar.
 "Restaurar padrão" volta aos valores de `defaults.js`.
 
@@ -76,7 +82,18 @@ custo total = DIFAL + ICMS + PIS + COFINS + custo s/ imposto + frete + taxa cart
 lucro = B18 − custo total      markup = lucro ÷ custo s/ imposto
 ```
 
-**NCM** vem da classe fiscal do produto: LG 7007.29.00 · CF 7005.29.00 · MI 7005.21.00.
+**NCM e II** vêm da classe fiscal do produto: LG 7007.29.00 (II 25%) · CF 7005.29.00 (II 25%) · MI 7005.21.00 (II 9%) — conforme `VL 4+4!C17` → `Produtos!O2/O9/O14`.
+
+## Validação
+
+- `calc.js` é estrito: quantidade e capacidade devem ser > 0, dólar > 0,
+  preço/frete/custos/perda não negativos, parcelas inteiras de 1 a 12,
+  produto/classe/bandeira/UF precisam existir na configuração (checagem com
+  `hasOwnProperty`, então chaves como `constructor` não passam). Qualquer
+  resultado não finito lança erro. A interface mostra "—" e a mensagem.
+- `validarConfig()` confere a estrutura inteira da configuração e roda ao
+  carregar do navegador, importar JSON, salvar e exportar. Configuração
+  salva inválida é descartada e o padrão volta.
 
 ## Diferenças em relação à planilha
 

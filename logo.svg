@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 120" width="560" height="120" role="img" aria-label="MaisGlass">
+  <title>MaisGlass</title>
+  <!-- Ícone: duas chapas de vidro sobrepostas, uma preta e uma cinza, com um brilho -->
+  <g transform="translate(8,12)">
+    <rect x="30" y="0" width="66" height="96" rx="8" fill="#8a8f98"/>
+    <rect x="0" y="16" width="66" height="96" rx="8" fill="#1c1f24"/>
+    <rect x="0" y="16" width="66" height="96" rx="8" fill="none" stroke="#f3f5f8" stroke-width="3"/>
+    <path d="M12 28 L28 28 L16 68 L8 68 Z" fill="#ffffff" opacity="0.28"/>
+    <path d="M34 28 L40 28 L28 68 L22 68 Z" fill="#ffffff" opacity="0.18"/>
+  </g>
+  <!-- Wordmark -->
+  <text x="130" y="86" font-family="-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="78" font-weight="700" letter-spacing="-2">
+    <tspan fill="#8a8f98">Mais</tspan><tspan fill="#1c1f24">Glass</tspan>
+  </text>
+</svg>
