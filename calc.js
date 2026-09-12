@@ -111,11 +111,13 @@
     if (!isObj(rv)) erros.push('Configuração de revenda ausente.');
     else {
       if (UFS.indexOf(rv.empresaUF) < 0) erros.push('UF da empresa inválida.');
+      if (rv.ipiCredito !== undefined && typeof rv.ipiCredito !== 'boolean') erros.push('revenda.ipiCredito deve ser verdadeiro/falso.');
       tenta(function () { fracao(rv.icmsCompraImportado, 'revenda.icmsCompraImportado'); });
       tenta(function () { fracao(rv.ipiCompra, 'revenda.ipiCompra'); });
       if (!isObj(rv.fcp)) erros.push('Tabela FCP ausente.');
       else Object.keys(rv.fcp).forEach(function (uf) {
         if (UFS.indexOf(uf) < 0) { erros.push('UF desconhecida na tabela FCP: ' + uf); return; }
+        if (rv.fcp[uf] === null) return;                      // null = FCP não confirmado (bloqueia a calc 2 para essa UF)
         tenta(function () { fracao(rv.fcp[uf], 'FCP ' + uf); });
       });
     }
@@ -310,20 +312,37 @@
    * Empresa (lucro real, em config.revenda.empresaUF) compra de fornecedor
    * com IE (NF com ICMS por dentro + IPI destacado) e vende para cliente,
    * normalmente NÃO contribuinte em outra UF.
-   * Segue o memorial da contadora:
+   * Segue o memorial da contadora, revisado pelo parecer técnico (set/2026):
    *   crédito ICMS na compra = valor produtos × alíquota da compra (4% importado)
-   *   débito ICMS na venda   = base venda × interestadual (4%)  [interna se mesma UF]
-   *   ICMS interno devido    = débito − crédito            (à UF da empresa)
-   *   DIFAL                  = base venda × (interna UF cliente − interestadual)
-   *   FCP                    = base venda × FCP da UF cliente   (à UF do cliente)
-   *   PIS/COFINS não cumulativo: crédito na compra (base sem ICMS), débito na venda (base sem ICMS)
+   *   débito ICMS na venda   = base × alíquota da saída (4% importado, Res. SF 13/2012 + FCI)  [interna se mesma UF]
+   *   apuração do ICMS       = débito − crédito  (positivo: a recolher à UF da empresa; negativo: saldo credor)
+   *   DIFAL                  = base × (interna UF cliente − alíquota da saída)   só p/ NÃO contribuinte interestadual
+   *   FCP                    = base × FCP da UF cliente (tabela; UF sem FCP confirmado bloqueia o cálculo)
+   *   base do ICMS/DIFAL/FCP = valor da operação (frete e IPI inclusos p/ consumidor final — LC 87/96 art. 13 §1º II b e §2º;
+   *                            IPI fora da base quando o cliente é contribuinte e revende/industrializa)
+   *   PIS/COFINS não cumulativo: crédito sobre (produtos − ICMS), IPI não recuperável fora (Lei 14.592/2023);
+   *                            débito sobre (valor da operação − IPI − ICMS próprio − DIFAL); FCP mantido na base (SC Cosit 61/2024)
+   *   preço "fechado"        = o valor combinado é o total da NF (IPI por dentro, DIFAL/FCP saem da margem)
+   *   preço "por fora"       = o valor combinado é o dos produtos; IPI, DIFAL e FCP cobrados em acréscimo com gross-up:
+   *                            total = produtos × (1 + IPI) ÷ (1 − DIFAL − FCP)
    * ----------------------------------------------------------------- */
+  function booleano(v, nome, padrao) {
+    if (v === undefined) return padrao;
+    if (v === true || v === false) return v;
+    throw new Error(nome + ' deve ser verdadeiro ou falso (recebido "' + v + '").');
+  }
+
   function calcularRevenda(config, inputs) {
     if (!isObj(config)) throw new Error('Configuração inválida.');
     if (!isObj(inputs)) throw new Error('Entradas inválidas.');
     var rv = config.revenda || {};
     var s = config.saida || {};
     var empresaUF = rv.empresaUF || 'MG';
+    function interna(uf) {
+      var d = config.difal[uf];
+      if (!Array.isArray(d) || d.length !== 2) throw new Error('Tabela DIFAL inválida para ' + uf);
+      return fracao(d[0], 'ICMS interna ' + uf);
+    }
 
     // --- Compra ---
     var fornecedorUF = inputs.fornecedorUF;
@@ -331,18 +350,18 @@
     var precoCompra = nonNeg(inputs.precoCompra, 'preço de compra');       // R$/m², valor dos produtos na NF (ICMS por dentro)
     var qtd = positivo(inputs.quantidade, 'quantidade');
     var perda = nonNeg(inputs.perda, 'perda');
-    var qtdComPerda = qtd * (1 + perda);
+    var qtdComPerda = qtd * (1 + perda);                       // perda = compra adicional sobre a quantidade vendida (como na calc 1)
     var icmsCompraAliq = fracao(inputs.icmsCompra, 'ICMS da compra');
     var ipiAliq = fracao(inputs.ipi, 'IPI');
-    var ipiCredito = inputs.ipiCredito === undefined ? !!rv.ipiCredito : !!inputs.ipiCredito;
+    var ipiCredito = booleano(inputs.ipiCredito, 'Crédito de IPI', !!rv.ipiCredito);
 
     var compraProdutos = precoCompra * qtdComPerda;          // valor dos produtos (ICMS incluso)
     var ipiCompra = compraProdutos * ipiAliq;                 // IPI destacado por fora
     var totalNFCompra = compraProdutos + ipiCompra;           // desembolso ao fornecedor
     var creditoICMS = compraProdutos * icmsCompraAliq;
     var creditoIPI = ipiCredito ? ipiCompra : 0;
-    // PIS/COFINS: base = produtos − ICMS; IPI não recuperável integra o custo e entra na base
-    var basePisCofinsCompra = compraProdutos - creditoICMS + (ipiCredito ? 0 : ipiCompra);
+    // PIS/COFINS: base = produtos − ICMS. IPI não recuperável NÃO entra na base do crédito (Lei 14.592/2023; IN RFB 2.121 art. 170)
+    var basePisCofinsCompra = compraProdutos - creditoICMS;
     var creditoPIS = basePisCofinsCompra * fracao(s.pis, 'PIS');
     var creditoCOFINS = basePisCofinsCompra * fracao(s.cofins, 'COFINS');
     var custoLiquidoCompra = totalNFCompra - creditoICMS - creditoIPI - creditoPIS - creditoCOFINS;
@@ -350,56 +369,82 @@
     // --- Venda ---
     var clienteUF = inputs.clienteUF;
     if (!has(config.difal, clienteUF)) throw new Error('UF do cliente desconhecida: ' + clienteUF);
-    var ufInfo = config.difal[clienteUF];
-    if (!Array.isArray(ufInfo) || ufInfo.length !== 2) throw new Error('Tabela DIFAL inválida para ' + clienteUF);
-    var contribuinte = !!inputs.contribuinte;
+    var contribuinte = booleano(inputs.contribuinte, 'Contribuinte', false);
+    var precoFechado = booleano(inputs.difalIncluso, 'Preço fechado', false);
     var precoVenda = nonNeg(inputs.precoVenda, 'preço de venda');
     var frete = nonNeg(inputs.frete, 'frete');
-    var taxa = taxaCartao(config, inputs);
-    var precoComTaxa = (precoVenda * qtd + frete) * (1 + taxa);
-    var baseVenda = precoComTaxa - frete;                      // frete fora da base, como na calc 1
-    var valorTaxaCartao = precoComTaxa - precoVenda * qtd - frete;
+    var ipiVendaAliq = fracao(inputs.ipiVenda === undefined ? 0 : inputs.ipiVenda, 'IPI na venda');
 
     var vendaInterna = clienteUF === empresaUF;
     var interestadual = fracao(config.interestadual, 'interestadual');
-    var icmsVendaAliq = vendaInterna ? fracao(config.difal[empresaUF][0], 'ICMS interna ' + empresaUF) : interestadual;
-    var icmsDebito = baseVenda * icmsVendaAliq;
-    var icmsInternoDevido = icmsDebito - creditoICMS;          // pode ficar negativo (saldo credor)
+    var icmsSaidaAliq = inputs.icmsSaida === undefined ? interestadual : fracao(inputs.icmsSaida, 'ICMS interestadual da saída');
+    var icmsVendaAliq = vendaInterna ? interna(empresaUF) : icmsSaidaAliq;
+    var difalPct = (!contribuinte && !vendaInterna) ? Math.max(0, interna(clienteUF) - icmsVendaAliq) : 0;
+    var fcpPct = 0;
+    if (!contribuinte && !vendaInterna) {
+      if (!isObj(rv.fcp) || !has(rv.fcp, clienteUF) || rv.fcp[clienteUF] === null || rv.fcp[clienteUF] === undefined)
+        throw new Error('FCP de ' + clienteUF + ' não confirmado. Informe em Configurações → FCP por UF (0 se o estado não cobra).');
+      fcpPct = fracao(rv.fcp[clienteUF], 'FCP ' + clienteUF);
+    }
 
-    var difalPct = (!contribuinte && !vendaInterna) ? Math.max(0, fracao(ufInfo[0], 'interna ' + clienteUF) - interestadual) : 0;
-    var difal = baseVenda * difalPct;
-    var fcpPct = (!contribuinte && !vendaInterna && rv.fcp && has(rv.fcp, clienteUF)) ? fracao(rv.fcp[clienteUF], 'FCP ' + clienteUF) : 0;
-    var fcp = baseVenda * fcpPct;
-    var icmsTotal = icmsInternoDevido + difal + fcp;
+    // Taxa do cartão: gross-up (preço ÷ (1 − taxa)) para que o líquido recebido seja o preço combinado + frete
+    var taxa = taxaCartao(config, inputs);
+    var subtotal = precoVenda * qtd + frete;                  // preço combinado + frete cobrado na NF (CIF integra a operação)
+    var precoComTaxa = taxa > 0 ? subtotal / (1 - taxa) : subtotal;
+    var valorTaxaCartao = precoComTaxa - subtotal;
 
-    var basePisCofinsVenda = baseVenda - icmsDebito;
+    // Valor da operação (total da NF) e IPI
+    var valorProdutos, ipiVenda, valorOperacao;
+    if (precoFechado) {
+      valorOperacao = precoComTaxa;                            // o cliente paga exatamente o combinado
+      valorProdutos = valorOperacao / (1 + ipiVendaAliq);      // IPI por dentro
+      ipiVenda = valorOperacao - valorProdutos;
+    } else {
+      valorProdutos = precoComTaxa;                            // o combinado é o valor dos produtos (+ frete)
+      ipiVenda = valorProdutos * ipiVendaAliq;
+      var divisor = 1 - difalPct - fcpPct;                     // gross-up do DIFAL/FCP cobrados em acréscimo
+      if (divisor <= 0) throw new Error('DIFAL + FCP ≥ 100%: gross-up impossível.');
+      valorOperacao = (valorProdutos + ipiVenda) / divisor;
+    }
+    // Base do ICMS: consumidor final (não contribuinte) → IPI integra a base; contribuinte que revende/industrializa → IPI fora
+    var baseICMS = contribuinte ? valorProdutos : valorOperacao;
+    var icmsDebito = baseICMS * icmsVendaAliq;
+    var icmsApuracao = icmsDebito - creditoICMS;               // negativo = saldo credor
+    var icmsARecolher = Math.max(0, icmsApuracao);
+    var saldoCredorICMS = Math.max(0, -icmsApuracao);
+    var difal = baseICMS * difalPct;
+    var fcp = baseICMS * fcpPct;
+    var icmsTotal = icmsApuracao + difal + fcp;
+
+    var ipiApuracao = ipiVenda - creditoIPI;
+    var ipiARecolher = Math.max(0, ipiApuracao);
+    var saldoCredorIPI = Math.max(0, -ipiApuracao);
+
+    // PIS/COFINS na saída: valor da operação − IPI − ICMS próprio − DIFAL (FCP permanece na base — posição conservadora)
+    var basePisCofinsVenda = valorOperacao - ipiVenda - icmsDebito - difal;
     var pisVenda = basePisCofinsVenda * fracao(s.pis, 'PIS');
     var cofinsVenda = basePisCofinsVenda * fracao(s.cofins, 'COFINS');
     var pisDevido = pisVenda - creditoPIS;
     var cofinsDevido = cofinsVenda - creditoCOFINS;
+    var pisCofinsARecolher = Math.max(0, pisDevido + cofinsDevido);
+    var saldoCredorPisCofins = Math.max(0, -(pisDevido + cofinsDevido));
 
-    // IPI na venda (indústria): destacado por fora e repassado ao cliente; débito abate o crédito da compra
-    var ipiVendaAliq = fracao(inputs.ipiVenda === undefined ? 0 : inputs.ipiVenda, 'IPI na venda');
-    var ipiVenda = baseVenda * ipiVendaAliq;
-    var ipiDevido = ipiVenda - creditoIPI;                     // negativo = saldo credor de IPI
-
-    // Preço "por fora": IPI/DIFAL/FCP somados ao preço. Preço "fechado": o valor combinado já é o final e o DIFAL/FCP saem da margem.
-    var difalIncluso = !!inputs.difalIncluso;
-    var precoFinal = difalIncluso ? precoComTaxa + ipiVenda : precoComTaxa + ipiVenda + difal + fcp;
-    var custoTotal = totalNFCompra + ipiDevido + icmsInternoDevido + difal + fcp + pisDevido + cofinsDevido + frete + valorTaxaCartao;
+    var precoFinal = valorOperacao;
+    // Custo econômico incremental da operação (créditos abatem o débito; saldo credor fica como crédito a transportar)
+    var custoTotal = totalNFCompra + ipiApuracao + icmsApuracao + difal + fcp + pisDevido + cofinsDevido + frete + valorTaxaCartao;
     var lucro = precoFinal - custoTotal;
     var markup = custoLiquidoCompra > 0 ? lucro / custoLiquidoCompra : 0;
 
-    /* ---- DRE da operação: lucro real (regime atual) × lucro presumido ----
-     * Receita bruta = tudo que o cliente paga (preço + IPI + DIFAL/FCP quando por fora).
-     * Deduções = tributos sobre a venda. CMV = compra líquida dos tributos recuperáveis.
-     * Despesas = frete e taxa de cartão. IRPJ/CSLL conforme o regime. */
+    /* ---- DRE da operação (estimativa gerencial): lucro real (regime atual) × lucro presumido ----
+     * Receita bruta = valor da operação (tudo que o cliente paga). Deduções = tributos sobre a venda.
+     * CMV = compra líquida dos tributos recuperáveis. Despesas = frete e taxa de cartão. IRPJ/CSLL conforme o regime.
+     * É o efeito incremental desta venda; a apuração real é do período inteiro e o adicional de IRPJ depende do lucro anual. */
     var tb = config.tributos || {};
     var receitaBruta = precoFinal;
-    var receitaSemIPI = precoComTaxa;                          // base de PIS/COFINS presumido e da presunção de IRPJ/CSLL
+    var receitaSemIPI = valorOperacao - ipiVenda;             // base de presunção do IRPJ/CSLL (receita bruta exclui o IPI)
     function dre(regime) {
       var presumido = regime === 'presumido';
-      var pisCof = presumido ? receitaSemIPI * (fracao(tb.pisCumulativo, 'PIS cumulativo') + fracao(tb.cofinsCumulativo, 'COFINS cumulativo'))
+      var pisCof = presumido ? basePisCofinsVenda * (fracao(tb.pisCumulativo, 'PIS cumulativo') + fracao(tb.cofinsCumulativo, 'COFINS cumulativo'))
                              : pisVenda + cofinsVenda;
       var deducoes = ipiVenda + icmsDebito + difal + fcp + pisCof;
       var receitaLiquida = receitaBruta - deducoes;
@@ -414,20 +459,25 @@
       return { regime: regime, receitaBruta: receitaBruta, ipi: ipiVenda, icms: icmsDebito, difalFcp: difal + fcp, pisCofins: pisCof,
         deducoes: deducoes, receitaLiquida: receitaLiquida, cmv: cmv, lucroBruto: lucroBruto, frete: frete, cartao: valorTaxaCartao,
         lucroOperacional: lucroOperacional, irpjCsll: irpjCsll, lucroLiquido: lucroLiquido,
-        margemLiquida: receitaBruta > 0 ? lucroLiquido / receitaBruta : 0, tributosTotais: deducoes - (creditoICMS + creditoIPI + (presumido ? 0 : creditoPIS + creditoCOFINS)) + irpjCsll };
+        margemLiquida: receitaLiquida > 0 ? lucroLiquido / receitaLiquida : 0,          // sobre a receita líquida (DRE)
+        margemSobreValorPago: receitaBruta > 0 ? lucroLiquido / receitaBruta : 0,       // sobre o total pago pelo cliente
+        tributosTotais: deducoes - (creditoICMS + creditoIPI + (presumido ? 0 : creditoPIS + creditoCOFINS)) + irpjCsll };
     }
     var dreReal = dre('real'), drePresumido = dre('presumido');
 
     var notasR = [];
     notasR.push('Compra de ' + fornecedorUF + ' (fornecedor com IE) → venda de ' + empresaUF + ' para cliente ' +
       (contribuinte ? 'contribuinte' : 'NÃO contribuinte') + ' em ' + clienteUF + (vendaInterna ? ' (venda interna).' : '.'));
-    notasR.push('Preço final por m²: ' + fmtBRL(precoFinal / qtd) + (frete > 0 ? ' + frete incluso' : ' + frete não incluso') +
-      (ipiVenda > 0 ? ' + IPI incluso' : '') + (difal + fcp > 0 ? (difalIncluso ? ' (DIFAL/FCP saem da margem — preço fechado).' : ' + DIFAL/FCP somados ao preço.') : '.'));
+    notasR.push('Preço final por m²: ' + fmtBRL(precoFinal / qtd) + (frete > 0 ? ' (frete incluso)' : ' (sem frete)') +
+      (ipiVenda > 0 ? ' + IPI incluso' : '') + (difal + fcp > 0 ? (precoFechado ? ' (DIFAL/FCP saem da margem — preço fechado).' : ' + DIFAL/FCP com gross-up (base única sobre o total).') : '.'));
     notasR.push('IPI: crédito ' + fmtBRL(creditoIPI) + ' na compra' + (ipiVenda > 0 ? '; débito ' + fmtBRL(ipiVenda) + ' na venda' : '') + ' → ' +
-      (ipiDevido >= 0 ? fmtBRL(ipiDevido) + ' a recolher.' : 'saldo credor de ' + fmtBRL(-ipiDevido) + '.'));
-    notasR.push('ICMS: crédito ' + fmtBRL(creditoICMS) + ' na compra; débito ' + fmtBRL(icmsDebito) + ' (' + Math.round(icmsVendaAliq * 1000) / 10 + '%) na venda → ' +
-      (icmsInternoDevido >= 0 ? fmtBRL(icmsInternoDevido) + ' devidos a ' + empresaUF : 'saldo credor de ' + fmtBRL(-icmsInternoDevido) + ' em ' + empresaUF) + '.');
+      (ipiApuracao >= 0 ? fmtBRL(ipiApuracao) + ' a recolher.' : 'saldo credor de ' + fmtBRL(-ipiApuracao) + '.'));
+    notasR.push('ICMS: crédito ' + fmtBRL(creditoICMS) + ' na compra; débito ' + fmtBRL(icmsDebito) + ' (' + Math.round(icmsVendaAliq * 1000) / 10 + '% sobre ' +
+      fmtBRL(baseICMS) + (contribuinte ? ', IPI fora da base' : ', IPI incluso na base') + ') → ' +
+      (icmsApuracao >= 0 ? fmtBRL(icmsApuracao) + ' devidos a ' + empresaUF : 'saldo credor de ' + fmtBRL(-icmsApuracao) + ' em ' + empresaUF) + '.');
     if (difal + fcp > 0) notasR.push('DIFAL ' + fmtBRL(difal) + ' + FCP ' + fmtBRL(fcp) + ' devidos a ' + clienteUF + '.');
+    if (!vendaInterna && icmsVendaAliq === interestadual) notasR.push('Alíquota interestadual de ' + Math.round(interestadual * 1000) / 10 + '% exige conteúdo de importação > 40% e FCI emitida.');
+    notasR.push('Apuração de ICMS/IPI/PIS/COFINS e IRPJ/CSLL é do período inteiro: os valores acima são o efeito incremental estimado desta venda.');
 
     return checarFinito({
       qtdComPerda: qtdComPerda,
@@ -436,11 +486,13 @@
       creditoICMS: creditoICMS, creditoIPI: creditoIPI, creditoPIS: creditoPIS, creditoCOFINS: creditoCOFINS,
       custoLiquidoCompra: custoLiquidoCompra, custoLiquidoM2: custoLiquidoCompra / qtd,
       // venda
-      taxaCartao: taxa, precoComTaxa: precoComTaxa, baseVenda: baseVenda, valorTaxaCartao: valorTaxaCartao,
-      ipiVendaAliq: ipiVendaAliq, ipiVenda: ipiVenda, ipiDevido: ipiDevido,
-      icmsVendaAliq: icmsVendaAliq, icmsDebito: icmsDebito, icmsInternoDevido: icmsInternoDevido,
-      difalPct: difalPct, difal: difal, fcpPct: fcpPct, fcp: fcp, icmsTotal: icmsTotal, difalIncluso: difalIncluso,
-      pisVenda: pisVenda, cofinsVenda: cofinsVenda, pisDevido: pisDevido, cofinsDevido: cofinsDevido,
+      taxaCartao: taxa, subtotal: subtotal, precoComTaxa: precoComTaxa, valorTaxaCartao: valorTaxaCartao,
+      valorProdutos: valorProdutos, valorOperacao: valorOperacao, baseICMS: baseICMS, baseVenda: baseICMS,
+      ipiVendaAliq: ipiVendaAliq, ipiVenda: ipiVenda, ipiDevido: ipiApuracao, ipiARecolher: ipiARecolher, saldoCredorIPI: saldoCredorIPI,
+      icmsVendaAliq: icmsVendaAliq, icmsDebito: icmsDebito, icmsInternoDevido: icmsApuracao, icmsARecolher: icmsARecolher, saldoCredorICMS: saldoCredorICMS,
+      difalPct: difalPct, difal: difal, fcpPct: fcpPct, fcp: fcp, icmsTotal: icmsTotal, difalIncluso: precoFechado, contribuinte: contribuinte,
+      basePisCofinsVenda: basePisCofinsVenda, pisVenda: pisVenda, cofinsVenda: cofinsVenda, pisDevido: pisDevido, cofinsDevido: cofinsDevido,
+      pisCofinsARecolher: pisCofinsARecolher, saldoCredorPisCofins: saldoCredorPisCofins,
       frete: frete,
       precoFinal: precoFinal, precoVendaM2: precoFinal / qtd,
       custoTotal: custoTotal, lucro: lucro, markup: markup,
@@ -466,6 +518,6 @@
     return out;
   }
 
-  root.GM_CALC = { calcular: calcular, calcularRevenda: calcularRevenda, custoImportacao: custoImportacao, taxaCartao: taxaCartao,
+  root.GM_CALC = { calcular: calcular, calcularRevenda: calcularRevenda, custoImportacao: custoImportacao, taxaCartao: taxaCartao, booleano: booleano,
     findProduto: findProduto, validarConfig: validarConfig, fmtBRL: fmtBRL, UFS: UFS };
 })(typeof module !== 'undefined' ? module.exports : window);
