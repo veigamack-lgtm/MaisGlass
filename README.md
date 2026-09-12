@@ -12,7 +12,7 @@ build, sem servidor: abre direto no navegador ou publica no GitHub Pages.
 | `calc.js` | Motor de cálculo puro (sem DOM). Cada fórmula cita a célula da planilha de origem. |
 | `defaults.js` | Valores padrão: produtos, classes fiscais + NCM, despesas nacionais, entreposto, cartão, DIFAL. É o "Restaurar padrão". |
 | `app.js` | Liga interface ↔ motor; login; localStorage; exportar/importar JSON. |
-| `test/test.js` | Testes de regressão contra os valores da planilha. `node test/test.js` |
+| `test/test.js` | Testes de regressão (planilha + memorial da contadora). `node test/test.js` |
 
 ## Como publicar (GitHub Pages)
 
@@ -83,6 +83,38 @@ lucro = B18 − custo total      markup = lucro ÷ custo s/ imposto
 ```
 
 **NCM e II** vêm da classe fiscal do produto: LG 7007.29.00 (II 25%) · CF 7005.29.00 (II 25%) · MI 7005.21.00 (II 9%) — conforme `VL 4+4!C17` → `Produtos!O2/O9/O14`.
+
+## Calculadora 2 — Revenda de importado comprado no Brasil
+
+Tela inicial escolhe a operação: (1) importação direta, (2) revenda de
+importado, (3) indústria nacional (ainda não montada). A calculadora 2 segue
+o memorial da contadora, para empresa **lucro real** e **indústria
+(beneficiamento de vidro)**, comprando de fornecedor com IE e vendendo a
+cliente (normalmente não contribuinte) em outra UF:
+
+```
+Compra (NF do fornecedor, ICMS por dentro, IPI por fora)
+  produtos        = preço/m² × m² × (1 + perda)
+  IPI compra      = produtos × IPI%              (crédito se "IPI gera crédito")
+  crédito ICMS    = produtos × ICMS da compra   (4% = importado interestadual)
+  crédito PIS/COFINS = (produtos − ICMS [+ IPI se não creditável]) × 9,25%
+  custo líquido   = produtos + IPI − créditos
+
+Venda
+  base            = (preço/m² × m² + frete) × (1 + taxa cartão) − frete
+  débito ICMS     = base × 4% (interestadual)  |  × interna da empresa se venda interna
+  ICMS interno    = débito − crédito            → devido à UF da empresa (negativo = saldo credor)
+  DIFAL           = base × (interna da UF do cliente − 4%)   se NÃO contribuinte e interestadual
+  FCP             = base × FCP da UF do cliente               (tabela em Configurações; só RJ 2% preenchido)
+  IPI venda       = base × IPI na venda%       (repassado; débito − crédito de IPI = a recolher)
+  PIS/COFINS      = (base − débito ICMS) × 9,25% − crédito
+  preço final     = preço + taxa + IPI venda + DIFAL + FCP
+  custo total     = NF compra + IPI devido + ICMS interno + DIFAL + FCP + PIS/COFINS devidos + frete + taxa
+  lucro           = preço final − custo total;  markup = lucro ÷ custo líquido
+```
+
+Exemplo do memorial (compra 100 mil a 4%, venda 200 mil MG→RJ não contribuinte):
+crédito 4.000, débito 8.000, interno 4.000 (MG), DIFAL 32.000 + FCP 4.000 (RJ) = ICMS total 40.000.
 
 ## Validação
 

@@ -104,6 +104,16 @@
   .hidden { display: none !important; }
   .warn { color: var(--warn); font-size: 13px; }
   footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
+  .home-title { font-size: 20px; font-weight: 600; margin: 10px 0 18px; }
+  .home-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 860px) { .home-grid { grid-template-columns: 1fr; } }
+  .home-card { text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px 20px; cursor: pointer; font: inherit; color: var(--ink); display: flex; flex-direction: column; gap: 8px; transition: border-color .15s, transform .15s; }
+  .home-card:hover { border-color: var(--ink); transform: translateY(-2px); }
+  .home-card strong { font-size: 17px; }
+  .home-card span:last-child { color: var(--muted); font-size: 14px; line-height: 1.45; }
+  .home-card .num { width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
+  .home-card.disabled { opacity: .55; } .home-card.disabled .num { background: var(--gray); }
+  nav.tabs { flex-wrap: wrap; }
   .result-hero .value { font-size: clamp(24px, 6vw, 34px); overflow-wrap: anywhere; }
   @media (max-width: 600px) {
     header { flex-wrap: wrap; padding: 12px 14px; gap: 10px; }
@@ -123,7 +133,7 @@
 <section id="login" class="login card">
   <div class="logo"><svg class="logo-mark" viewBox="0 0 104 128" aria-hidden="true"><rect x="34" y="0" width="66" height="96" rx="8" fill="#8a8f98"/><rect x="4" y="16" width="66" height="96" rx="8" fill="#1c1f24"/><rect x="4" y="16" width="66" height="96" rx="8" fill="none" stroke="#f3f5f8" stroke-width="3"/><path d="M16 28 L32 28 L20 68 L12 68 Z" fill="#fff" opacity=".28"/><path d="M38 28 L44 28 L32 68 L26 68 Z" fill="#fff" opacity=".18"/></svg><span class="logo-word"><span class="m">Mais</span><span class="g">Glass</span></span></div>
   <p class="hint">Calculadora de preços · área restrita</p>
-  <input type="password" id="loginSenha" placeholder="Senha" autocomplete="current-password">
+  <input type="password" id="loginSenha" placeholder="Senha" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
   <button class="btn primary" id="loginBtn">Entrar</button>
   <p id="loginErro" class="status err hidden">Senha incorreta.</p>
 </section>
@@ -137,13 +147,43 @@
     <button id="logoutBtn">Sair</button>
   </header>
   <nav class="tabs">
-    <button data-tab="calc" class="active">Calculadora</button>
+    <button data-tab="home" class="active">Início</button>
+    <button data-tab="calc">Importação direta</button>
+    <button data-tab="revenda">Revenda de importado</button>
+    <button data-tab="nacional">Indústria nacional</button>
     <button data-tab="config">Configurações</button>
   </nav>
 
   <main>
-    <!-- ---------- ABA CALCULADORA ---------- -->
-    <section id="tab-calc">
+    <!-- ---------- INÍCIO ---------- -->
+    <section id="tab-home">
+      <h2 class="home-title">Qual operação você quer precificar?</h2>
+      <div class="home-grid">
+        <button class="home-card" data-go="calc">
+          <span class="num">1</span>
+          <strong>Importação direta</strong>
+          <span>A MaisGlass importa o container. Custo FOB + frete + impostos de importação + despesas, e a venda com ICMS, DIFAL e cartão.</span>
+        </button>
+        <button class="home-card" data-go="revenda">
+          <span class="num">2</span>
+          <strong>Revenda de importado</strong>
+          <span>Compra de vidro importado de uma importadora ou distribuidor no Brasil (com IE) e venda para cliente não contribuinte. Crédito e débito de ICMS, DIFAL, FCP, PIS/COFINS.</span>
+        </button>
+        <button class="home-card disabled" data-go="nacional">
+          <span class="num">3</span>
+          <strong>Indústria nacional</strong>
+          <span>Compra de vidro fabricado no Brasil. Em breve.</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ---------- INDÚSTRIA NACIONAL (placeholder) ---------- -->
+    <section id="tab-nacional" class="hidden">
+      <div class="card"><h2>Indústria nacional</h2><p class="hint">Calculadora ainda não montada. Me passe as regras (alíquotas de compra, IPI, ICMS interno) e eu monto igual às outras.</p></div>
+    </section>
+
+    <!-- ---------- ABA CALCULADORA 1: IMPORTAÇÃO DIRETA ---------- -->
+    <section id="tab-calc" class="hidden">
       <div class="grid">
         <div class="card purple">
           <h2>Entradas</h2>
@@ -217,6 +257,93 @@
       </details>
     </section>
 
+    <!-- ---------- ABA CALCULADORA 2: REVENDA DE IMPORTADO ---------- -->
+    <section id="tab-revenda" class="hidden">
+      <div class="grid">
+        <div>
+          <div class="card purple">
+            <h2>Compra (fornecedor com IE)</h2>
+            <div class="field"><label>UF do fornecedor</label><select id="r-fornecedorUF"></select></div>
+            <div class="field"><label>Preço de compra (R$/m²)<small>Valor dos produtos na NF, ICMS por dentro</small></label><input type="number" id="r-precoCompra" min="0" step="0.01"></div>
+            <div class="field"><label>Quantidade (m²)</label><input type="number" id="r-quantidade" min="0" step="0.01"></div>
+            <div class="field"><label>Perda (%)<small>Aproveitamento de corte</small></label><input type="number" id="r-perda" min="0" step="0.5" value="0"></div>
+            <div class="field"><label>ICMS destacado na compra (%)<small>4% = importado interestadual</small></label><input type="number" id="r-icmsCompra" min="0" step="0.5"></div>
+            <div class="field"><label>IPI destacado (%)</label><input type="number" id="r-ipi" min="0" step="0.5"></div>
+            <div class="field"><label>IPI gera crédito?<small>MaisGlass é indústria (beneficiamento): sim</small></label>
+              <select id="r-ipiCredito"><option value="sim">Sim, crédito</option><option value="nao">Não, vira custo</option></select></div>
+          </div>
+          <div class="card purple" style="margin-top:20px">
+            <h2>Venda</h2>
+            <div class="field"><label>Cliente é contribuinte?</label>
+              <select id="r-contribuinte"><option value="nao">Não contribuinte</option><option value="sim">Contribuinte</option></select></div>
+            <div class="field"><label>UF do cliente</label><select id="r-clienteUF"></select></div>
+            <div class="field"><label>Preço de venda (R$/m²)</label><input type="number" id="r-precoVenda" min="0" step="0.01"></div>
+            <div class="field"><label>IPI na venda (%)<small>Se a MaisGlass destacar IPI na saída; abate o crédito da compra</small></label><input type="number" id="r-ipiVenda" min="0" step="0.5"></div>
+            <div class="field"><label>Frete (R$)</label><input type="number" id="r-frete" min="0" step="0.01"></div>
+            <div class="field"><label>Pagamento</label><select id="r-pagamento"><option>À vista</option><option>Parcelado</option></select></div>
+            <div class="field"><label>Bandeira do cartão</label><select id="r-bandeira"></select></div>
+            <div class="field"><label>Número de parcelas</label><input type="number" id="r-parcelas" min="1" max="12" step="1"></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="result-hero">
+            <div class="label">Preço final ao cliente</div>
+            <div class="value" id="ro-precoFinal">—</div>
+            <div class="sub" id="ro-precoM2"></div>
+          </div>
+          <div class="card">
+            <h2>Apuração do ICMS</h2>
+            <div class="kv"><span class="k">Crédito na compra</span><span class="v" id="ro-creditoICMS"></span></div>
+            <div class="kv"><span class="k" id="ro-icmsDebitoLabel">Débito na venda</span><span class="v" id="ro-icmsDebito"></span></div>
+            <div class="kv"><span class="k" id="ro-icmsInternoLabel">ICMS interno devido</span><span class="v" id="ro-icmsInterno"></span></div>
+            <div class="kv"><span class="k" id="ro-difalLabel">DIFAL</span><span class="v" id="ro-difal"></span></div>
+            <div class="kv"><span class="k" id="ro-fcpLabel">FCP</span><span class="v" id="ro-fcp"></span></div>
+            <div class="kv total"><span class="k">Custo total de ICMS</span><span class="v" id="ro-icmsTotal"></span></div>
+          </div>
+          <div class="card" style="margin-top:14px">
+            <h2>PIS / COFINS (lucro real)</h2>
+            <div class="kv"><span class="k">Crédito na compra (PIS + COFINS)</span><span class="v" id="ro-credPisCofins"></span></div>
+            <div class="kv"><span class="k">Débito na venda (PIS + COFINS)</span><span class="v" id="ro-debPisCofins"></span></div>
+            <div class="kv total"><span class="k">A recolher</span><span class="v" id="ro-pisCofinsDevido"></span></div>
+          </div>
+          <div class="notes" style="margin-top:14px" id="ro-notas"></div>
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top:20px">
+        <div class="card">
+          <h2>Compra</h2>
+          <div class="kv"><span class="k">Valor dos produtos (NF)</span><span class="v" id="ro-compraProdutos"></span></div>
+          <div class="kv"><span class="k">IPI destacado</span><span class="v" id="ro-ipiCompra"></span></div>
+          <div class="kv total"><span class="k">Total pago ao fornecedor</span><span class="v" id="ro-totalNF"></span></div>
+          <div class="kv"><span class="k">(−) Créditos ICMS + IPI + PIS/COFINS</span><span class="v" id="ro-creditos"></span></div>
+          <div class="kv total"><span class="k">Custo líquido da mercadoria</span><span class="v" id="ro-custoLiquido"></span></div>
+          <div class="kv"><span class="k">Custo líquido por m²</span><span class="v" id="ro-custoLiquidoM2"></span></div>
+        </div>
+        <div class="card">
+          <h2>Resultado da operação</h2>
+          <div class="kv"><span class="k">Taxa do cartão</span><span class="v" id="ro-taxaCartao"></span></div>
+          <div class="kv"><span class="k">Preço + taxa do cartão</span><span class="v" id="ro-precoComTaxa"></span></div>
+          <div class="kv"><span class="k">IPI na venda (repassado)</span><span class="v" id="ro-ipiVenda"></span></div>
+          <div class="kv"><span class="k" id="ro-ipiDevidoLabel">IPI a recolher (débito − crédito)</span><span class="v" id="ro-ipiDevido"></span></div>
+          <div class="kv"><span class="k">DIFAL + FCP repassados</span><span class="v" id="ro-difalFcp"></span></div>
+          <div class="kv"><span class="k">Frete</span><span class="v" id="ro-frete"></span></div>
+          <div class="kv total"><span class="k">Custo total</span><span class="v" id="ro-custoTotal"></span></div>
+          <div class="kv" id="ro-row-lucro"><span class="k">Lucro</span><span class="v" id="ro-lucro"></span></div>
+          <div class="kv"><span class="k">Markup sobre custo líquido</span><span class="v" id="ro-markup"></span></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:20px">
+        <h2>Para onde vai o preço final</h2>
+        <p class="hint" id="rviz-sub"></p>
+        <div class="viz-bar" id="rviz-bar" role="img" aria-label="Composição do preço final"></div>
+        <div class="viz-legend" id="rviz-legend"></div>
+        <p class="warn hidden" id="rviz-prejuizo"></p>
+      </div>
+    </section>
+
     <!-- ---------- ABA CONFIGURAÇÕES ---------- -->
     <section id="tab-config" class="hidden">
       <div class="toolbar">
@@ -277,6 +404,17 @@
           <p class="hint">Custo FOB em US$/m², capacidade em m² por container. Para incluir um produto, clique em "Adicionar".</p>
           <div class="table-wrap" id="cfg-produtos"></div>
           <button class="btn small" id="cfgAddProduto" style="margin-top:8px">+ Adicionar produto</button>
+
+          <h3>Revenda de importado (calculadora 2)</h3>
+          <div class="field"><label>UF da empresa (MaisGlass)</label><select data-cfg="revenda.empresaUF" data-type="text" id="cfg-empresaUF"></select></div>
+          <div class="field"><label>ICMS padrão na compra de importado (%)</label><input type="number" step="0.5" data-cfg="revenda.icmsCompraImportado" data-type="pct"></div>
+          <div class="field"><label>IPI padrão na compra (%)</label><input type="number" step="0.5" data-cfg="revenda.ipiCompra" data-type="pct"></div>
+          <div class="field"><label>IPI gera crédito por padrão?</label><select data-cfg="revenda.ipiCredito" data-type="bool"><option value="1">Sim</option><option value="0">Não</option></select></div>
+          <details>
+            <summary>FCP por UF (Fundo de Combate à Pobreza)</summary>
+            <p class="hint">Cobrado junto com o DIFAL para cliente não contribuinte. Só o RJ (2%) está preenchido; confirme os demais estados com a contadora antes de usar.</p>
+            <div class="table-wrap" id="cfg-fcp"></div>
+          </details>
 
           <details>
             <summary>DIFAL por UF</summary>

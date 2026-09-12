@@ -147,13 +147,16 @@
   }
 
   /* ---------------- abas ---------------- */
-  var abaAtual = 'calc';
+  var ABAS = ['home', 'calc', 'revenda', 'nacional', 'config'];
+  var abaAtual = 'home';
   function mostrarAba(nome) {
+    if (ABAS.indexOf(nome) < 0) nome = 'home';
     if (abaAtual === 'config' && nome !== 'config' && draft) lerCamposSimples(); // guarda o que foi digitado
     abaAtual = nome;
     document.querySelectorAll('nav.tabs button').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === nome); });
-    $('tab-calc').classList.toggle('hidden', nome !== 'calc');
-    $('tab-config').classList.toggle('hidden', nome !== 'config');
+    ABAS.forEach(function (a) { $('tab-' + a).classList.toggle('hidden', a !== nome); });
+    try { sessionStorage.setItem('glassmais.aba', nome); } catch (e) { /* ignore */ }
+    if (nome === 'revenda') recalcularRevenda();
     if (nome === 'config') { if (!draft) draft = clone(config); renderConfig(); }
   }
 
@@ -170,6 +173,128 @@
     var selU = $('in-uf'); var atualU = selU.value; selU.innerHTML = '';
     Object.keys(config.difal).sort().forEach(function (uf) { selU.appendChild(el('option', { value: uf, text: uf })); });
     if (atualU && config.difal[atualU]) selU.value = atualU;
+
+    // revenda
+    ['r-fornecedorUF', 'r-clienteUF'].forEach(function (id) {
+      var sel = $(id); var atual = sel.value; sel.innerHTML = '';
+      Object.keys(config.difal).sort().forEach(function (uf) { sel.appendChild(el('option', { value: uf, text: uf })); });
+      if (atual && config.difal[atual]) sel.value = atual;
+    });
+    var selRB = $('r-bandeira'); var atualRB = selRB.value; selRB.innerHTML = '';
+    Object.keys(config.cartao.mdr).forEach(function (b) { selRB.appendChild(el('option', { value: b, text: b })); });
+    if (atualRB && config.cartao.mdr[atualRB]) selRB.value = atualRB;
+  }
+
+  /* ---------------- calculadora 2: revenda ---------------- */
+  function lerEntradasRevenda() {
+    var pctOrZero = function (id) { return $(id).value === '' ? 0 : Number($(id).value) / 100; };
+    return {
+      fornecedorUF: $('r-fornecedorUF').value,
+      precoCompra: $('r-precoCompra').value,
+      quantidade: $('r-quantidade').value,
+      perda: pctOrZero('r-perda'),
+      icmsCompra: pctOrZero('r-icmsCompra'),
+      ipi: pctOrZero('r-ipi'),
+      ipiCredito: $('r-ipiCredito').value === 'sim',
+      contribuinte: $('r-contribuinte').value === 'sim',
+      clienteUF: $('r-clienteUF').value,
+      precoVenda: $('r-precoVenda').value,
+      ipiVenda: pctOrZero('r-ipiVenda'),
+      frete: $('r-frete').value === '' ? 0 : $('r-frete').value,
+      pagamento: $('r-pagamento').value,
+      bandeira: $('r-bandeira').value,
+      parcelas: $('r-parcelas').value
+    };
+  }
+
+  function aplicarEntradasPadraoRevenda() {
+    var d = DEF.inputsRevenda, rv = config.revenda || {};
+    $('r-fornecedorUF').value = d.fornecedorUF;
+    $('r-precoCompra').value = d.precoCompra;
+    $('r-quantidade').value = d.quantidade;
+    $('r-perda').value = d.perda * 100;
+    $('r-icmsCompra').value = Math.round((rv.icmsCompraImportado !== undefined ? rv.icmsCompraImportado : d.icmsCompra) * 1e4) / 100;
+    $('r-ipi').value = Math.round((rv.ipiCompra !== undefined ? rv.ipiCompra : d.ipi) * 1e4) / 100;
+    $('r-ipiCredito').value = (rv.ipiCredito !== undefined ? rv.ipiCredito : d.ipiCredito) ? 'sim' : 'nao';
+    $('r-contribuinte').value = d.contribuinte ? 'sim' : 'nao';
+    $('r-clienteUF').value = d.clienteUF;
+    $('r-precoVenda').value = d.precoVenda;
+    $('r-ipiVenda').value = d.ipiVenda * 100;
+    $('r-frete').value = d.frete;
+    $('r-pagamento').value = d.pagamento;
+    $('r-bandeira').value = d.bandeira;
+    $('r-parcelas').value = d.parcelas;
+  }
+
+  function recalcularRevenda() {
+    var inp = lerEntradasRevenda();
+    var parcelado = inp.pagamento === 'Parcelado';
+    $('r-bandeira').disabled = !parcelado;
+    $('r-parcelas').disabled = !parcelado;
+    var r;
+    try { r = CALC.calcularRevenda(config, inp); }
+    catch (e) { limparResultadosRevenda(e.message); return; }
+    var empresaUF = (config.revenda && config.revenda.empresaUF) || 'MG';
+
+    $('ro-precoFinal').textContent = brl(r.precoFinal);
+    $('ro-precoM2').textContent = brl(r.precoVendaM2) + ' por m² · ' + numFmt(Number(inp.quantidade), 2) + ' m²';
+    $('ro-creditoICMS').textContent = brl(r.creditoICMS);
+    $('ro-icmsDebitoLabel').textContent = 'Débito na venda (' + pct(r.icmsVendaAliq, 1) + ')';
+    $('ro-icmsDebito').textContent = brl(r.icmsDebito);
+    $('ro-icmsInternoLabel').textContent = r.icmsInternoDevido >= 0 ? 'ICMS interno devido a ' + empresaUF : 'Saldo credor de ICMS em ' + empresaUF;
+    $('ro-icmsInterno').textContent = brl(Math.abs(r.icmsInternoDevido));
+    $('ro-difalLabel').textContent = 'DIFAL ' + (r.difalPct > 0 ? pct(r.difalPct, 1) + ' — devido a ' + inp.clienteUF : '(não se aplica)');
+    $('ro-difal').textContent = brl(r.difal);
+    $('ro-fcpLabel').textContent = 'FCP ' + (r.fcpPct > 0 ? pct(r.fcpPct, 1) + ' — devido a ' + inp.clienteUF : '(não se aplica)');
+    $('ro-fcp').textContent = brl(r.fcp);
+    $('ro-icmsTotal').textContent = brl(r.icmsTotal);
+
+    $('ro-credPisCofins').textContent = brl(r.creditoPIS + r.creditoCOFINS);
+    $('ro-debPisCofins').textContent = brl(r.pisVenda + r.cofinsVenda);
+    $('ro-pisCofinsDevido').textContent = brl(r.pisDevido + r.cofinsDevido);
+
+    $('ro-compraProdutos').textContent = brl(r.compraProdutos);
+    $('ro-ipiCompra').textContent = brl(r.ipiCompra);
+    $('ro-totalNF').textContent = brl(r.totalNFCompra);
+    $('ro-creditos').textContent = '− ' + brl(r.creditoICMS + r.creditoIPI + r.creditoPIS + r.creditoCOFINS);
+    $('ro-custoLiquido').textContent = brl(r.custoLiquidoCompra);
+    $('ro-custoLiquidoM2').textContent = brl(r.custoLiquidoM2);
+
+    $('ro-taxaCartao').textContent = pct(r.taxaCartao) + ' · ' + brl(r.valorTaxaCartao);
+    $('ro-precoComTaxa').textContent = brl(r.precoComTaxa);
+    $('ro-ipiVenda').textContent = brl(r.ipiVenda);
+    $('ro-ipiDevidoLabel').textContent = r.ipiDevido >= 0 ? 'IPI a recolher (débito − crédito)' : 'Saldo credor de IPI';
+    $('ro-ipiDevido').textContent = brl(Math.abs(r.ipiDevido));
+    $('ro-difalFcp').textContent = brl(r.difal + r.fcp);
+    $('ro-frete').textContent = brl(r.frete);
+    $('ro-custoTotal').textContent = brl(r.custoTotal);
+    $('ro-lucro').textContent = brl(r.lucro);
+    $('ro-row-lucro').classList.toggle('neg', r.lucro < 0);
+    $('ro-markup').textContent = pct(r.markup, 1);
+
+    $('ro-notas').innerHTML = '';
+    r.notas.forEach(function (n) { $('ro-notas').appendChild(el('p', { text: n })); });
+
+    var impostos = r.icmsInternoDevido + r.pisDevido + r.cofinsDevido + r.ipiDevido;
+    renderGraficoGenerico('rviz', r.precoFinal, r.custoTotal, r.lucro, [
+      { nome: 'Mercadoria (NF do fornecedor)', sub: 'produtos + IPI, antes dos créditos', valor: r.totalNFCompra },
+      { nome: 'Impostos líquidos', sub: 'ICMS ' + brl(r.icmsInternoDevido) + ' · PIS/COFINS ' + brl(r.pisDevido + r.cofinsDevido) + ' · IPI ' + brl(r.ipiDevido) + ' (já descontados os créditos)', valor: impostos },
+      { nome: 'DIFAL + FCP', sub: r.difalPct + r.fcpPct > 0 ? pct(r.difalPct + r.fcpPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal + r.fcp },
+      { nome: 'Frete', sub: '', valor: r.frete },
+      { nome: 'Taxa do cartão', sub: r.taxaCartao > 0 ? pct(r.taxaCartao) : 'à vista', valor: r.valorTaxaCartao },
+      { nome: 'Lucro', sub: 'markup ' + pct(r.markup, 1) + ' sobre o custo líquido', valor: r.lucro }
+    ]);
+  }
+
+  function limparResultadosRevenda(msg) {
+    document.querySelectorAll('#tab-revenda .kv .v, #tab-revenda .result-hero .value').forEach(function (n) { n.textContent = '—'; });
+    $('ro-precoM2').textContent = '';
+    $('ro-row-lucro').classList.remove('neg');
+    $('ro-notas').innerHTML = '';
+    $('ro-notas').appendChild(el('p', { class: 'warn', text: 'Não foi possível calcular: ' + msg }));
+    $('rviz-bar').innerHTML = ''; $('rviz-legend').innerHTML = '';
+    $('rviz-sub').textContent = 'Corrija as entradas para ver a composição.';
+    $('rviz-prejuizo').classList.add('hidden');
   }
 
   function lerEntradas() {
@@ -249,21 +374,22 @@
   var VIZ_CORES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300'];
   function renderGrafico(r) {
     var impostos = r.pis + r.cofins + r.icms;
-    var partes = [
+    renderGraficoGenerico('viz', r.precoFinal, r.custoTotal, r.lucro, [
       { nome: 'Custo do vidro', sub: 'importação + despesas, sem imposto', valor: r.custoSemImposto },
       { nome: 'Impostos', sub: 'PIS ' + brl(r.pis) + ' · COFINS ' + brl(r.cofins) + ' · ICMS ' + brl(r.icms), valor: impostos },
       { nome: 'DIFAL', sub: r.difalPct > 0 ? pct(r.difalPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal },
       { nome: 'Frete', sub: '', valor: r.frete },
       { nome: 'Taxa do cartão', sub: r.taxaCartao > 0 ? pct(r.taxaCartao) : 'à vista', valor: r.valorTaxaCartao },
       { nome: 'Lucro', sub: 'markup ' + pct(r.markup, 1), valor: r.lucro }
-    ];
-    var total = r.precoFinal;
-    var bar = $('viz-bar'), leg = $('viz-legend');
+    ]);
+  }
+  function renderGraficoGenerico(prefix, total, custoTotal, lucro, partes) {
+    var bar = $(prefix + '-bar'), leg = $(prefix + '-legend');
     bar.innerHTML = ''; leg.innerHTML = '';
-    $('viz-sub').textContent = total > 0 ? 'Preço final ' + brl(total) + ' — cada faixa é a parte que cada item representa.' : 'Informe preço e quantidade para ver a composição.';
-    var prejuizo = r.lucro < 0;
-    $('viz-prejuizo').classList.toggle('hidden', !prejuizo);
-    if (prejuizo) $('viz-prejuizo').textContent = 'Atenção: o custo total (' + brl(r.custoTotal) + ') supera o preço final. Prejuízo de ' + brl(-r.lucro) + '.';
+    $(prefix + '-sub').textContent = total > 0 ? 'Preço final ' + brl(total) + ' — cada faixa é a parte que cada item representa.' : 'Informe preço e quantidade para ver a composição.';
+    var prejuizo = lucro < 0;
+    $(prefix + '-prejuizo').classList.toggle('hidden', !prejuizo);
+    if (prejuizo) $(prefix + '-prejuizo').textContent = 'Atenção: o custo total (' + brl(custoTotal) + ') supera o preço final. Prejuízo de ' + brl(-lucro) + '.';
 
     partes.forEach(function (p, i) {
       var frac = total > 0 && p.valor > 0 ? p.valor / total : 0;
@@ -331,9 +457,12 @@
   /* ---------------- aba configurações ---------------- */
   function renderConfig() {
     // campos simples data-cfg
+    var selUF = $('cfg-empresaUF'); if (!selUF.options.length) CALC.UFS.forEach(function (uf) { selUF.appendChild(el('option', { value: uf, text: uf })); });
     document.querySelectorAll('[data-cfg]').forEach(function (inp) {
       var v = getPath(draft, inp.getAttribute('data-cfg'));
-      if (inp.getAttribute('data-type') === 'pct') inp.value = Math.round(v * 1e6) / 1e4; // fração → %
+      var t = inp.getAttribute('data-type');
+      if (t === 'pct') inp.value = Math.round(v * 1e6) / 1e4; // fração → %
+      else if (t === 'bool') inp.value = v ? '1' : '0';
       else inp.value = v;
     });
     atualizarFora();
@@ -341,13 +470,27 @@
     renderProdutos();
     renderMdr();
     renderDifal();
+    renderFcp();
+  }
+  function renderFcp() {
+    var fcp = draft.revenda.fcp;
+    var tbl = el('table', {}, [
+      el('thead', {}, [el('tr', {}, ['UF', 'FCP %'].map(function (h) { return el('th', { text: h }); }))]),
+      el('tbody', {}, Object.keys(fcp).sort().map(function (uf) {
+        return el('tr', {}, [el('td', { text: uf }),
+          inputCell(Math.round(fcp[uf] * 1e6) / 1e4, function (v) { fcp[uf] = (v === '' ? NaN : Number(v)) / 100; }, { step: '0.5' })]);
+      }))
+    ]);
+    $('cfg-fcp').innerHTML = ''; $('cfg-fcp').appendChild(tbl);
   }
   function atualizarFora() { $('cfg-fora').value = Math.round((1 - draft.dentro) * 1e4) / 100; }
 
   function lerCamposSimples() {
     document.querySelectorAll('[data-cfg]').forEach(function (inp) {
-      var v = inp.value === '' ? NaN : Number(inp.value);
-      if (inp.getAttribute('data-type') === 'pct') v = v / 100;
+      var t = inp.getAttribute('data-type'), v;
+      if (t === 'text') v = inp.value;
+      else if (t === 'bool') v = inp.value === '1';
+      else { v = inp.value === '' ? NaN : Number(inp.value); if (t === 'pct') v = v / 100; }
       setPath(draft, inp.getAttribute('data-cfg'), v);
     });
   }
@@ -443,6 +586,7 @@
     status(salvarConfig(config) ? 'Configurações salvas.' : 'Salvo só nesta sessão (navegador sem armazenamento).', 'ok');
     preencherListas();
     recalcular();
+    recalcularRevenda();
   }
 
   function autoSalvar() {
@@ -454,6 +598,7 @@
     var ok = salvarConfig(config);
     preencherListas();
     recalcular();
+    recalcularRevenda();
     var hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     status(ok ? 'Salvo automaticamente às ' + hora + '.' : 'Aplicado só nesta sessão (navegador sem armazenamento).', 'ok');
   }
@@ -497,10 +642,18 @@
     aplicarEntradasPadrao();
     recalcular();
 
+    aplicarEntradasPadraoRevenda();
+    recalcularRevenda();
     document.querySelectorAll('#tab-calc input, #tab-calc select').forEach(function (i) {
       i.addEventListener('input', recalcular); i.addEventListener('change', recalcular);
     });
+    document.querySelectorAll('#tab-revenda input, #tab-revenda select').forEach(function (i) {
+      i.addEventListener('input', recalcularRevenda); i.addEventListener('change', recalcularRevenda);
+    });
     document.querySelectorAll('nav.tabs button').forEach(function (b) { b.addEventListener('click', function () { mostrarAba(b.getAttribute('data-tab')); }); });
+    document.querySelectorAll('.home-card').forEach(function (c) { c.addEventListener('click', function () { mostrarAba(c.getAttribute('data-go')); }); });
+    var abaSalva = null; try { abaSalva = sessionStorage.getItem('glassmais.aba'); } catch (e) { /* ignore */ }
+    mostrarAba(abaSalva || 'home');
     $('logoutBtn').addEventListener('click', sair);
 
     $('cfgSalvar').addEventListener('click', salvar);

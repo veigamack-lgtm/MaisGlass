@@ -97,6 +97,20 @@
       }
     },
 
+    /* --- Calculadora 2: revenda de importado comprado no Brasil --- */
+    revenda: {
+      empresaUF: 'MG',             // UF da MaisGlass (lucro real)
+      icmsCompraImportado: 0.04,   // ICMS destacado na NF do fornecedor (importado, interestadual)
+      ipiCompra: 0.065,            // IPI destacado pelo importador (equiparado a industrial)
+      ipiCredito: true,            // MaisGlass é indústria (beneficiamento de vidro): toma crédito do IPI
+      /* FCP (Fundo de Combate à Pobreza) cobrado no DIFAL para NÃO contribuinte, por UF do cliente.
+       * Só RJ preenchido (2%) conforme memorial da contadora; demais em 0 — confirmar antes de usar. */
+      fcp: {
+        AC: 0, AL: 0, AM: 0, AP: 0, BA: 0, CE: 0, DF: 0, ES: 0, GO: 0, MA: 0, MS: 0, MT: 0, MG: 0,
+        PA: 0, PB: 0, PE: 0, PI: 0, PR: 0, RJ: 0.02, RN: 0, RO: 0, RR: 0, RS: 0, SC: 0, SE: 0, SP: 0, TO: 0
+      }
+    },
+
     /* --- DIFAL por UF (aba DIFAL): [alíquota interna, DIFAL %].
      * DIFAL = interna − 4% (interestadual de importado); MG = 0 (venda interna). --- */
     interestadual: 0.04,
@@ -125,5 +139,24 @@
     uf: 'RJ'
   };
 
-  root.GM_DEFAULTS = { config: DEFAULT_CONFIG, inputs: DEFAULT_INPUTS };
+  /* Entradas padrão da calculadora de revenda */
+  var DEFAULT_INPUTS_REVENDA = {
+    fornecedorUF: 'SP',
+    precoCompra: 75,        // R$/m² na NF do fornecedor (ICMS por dentro)
+    quantidade: 1336,
+    perda: 0,
+    icmsCompra: 0.04,
+    ipi: 0.065,
+    ipiCredito: true,
+    ipiVenda: 0,            // IPI destacado na saída (indústria); 0 = não destaca
+    contribuinte: false,
+    clienteUF: 'RJ',
+    precoVenda: 150,        // R$/m²
+    frete: 0,
+    pagamento: 'À vista',
+    bandeira: 'Amex',
+    parcelas: 3
+  };
+
+  root.GM_DEFAULTS = { config: DEFAULT_CONFIG, inputs: DEFAULT_INPUTS, inputsRevenda: DEFAULT_INPUTS_REVENDA };
 })(typeof module !== 'undefined' ? module.exports : window);
