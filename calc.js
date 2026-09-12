@@ -501,6 +501,44 @@
     });
   }
 
+  /* -------------------------------------------------------------------
+   * DRE da importação direta (estimativa gerencial) — calculada A PARTIR do
+   * resultado de calcular(); não altera nenhuma fórmula da calc 1.
+   *   Receita bruta = preço final ao cliente (B18, DIFAL incluso)
+   *   Deduções      = DIFAL + ICMS efetivo + PIS/COFINS líquidos (débito − crédito da importação) [lucro real]
+   *                   DIFAL + ICMS efetivo + PIS/COFINS cumulativos 3,65% sem crédito            [presumido]
+   *   CMV           = custo do vidro (chão de fábrica + despesas; PIS/COFINS da importação já dentro)
+   *   Despesas      = frete + taxa do cartão  →  lucro operacional = lucro da calc 1 (mesmo número)
+   * ----------------------------------------------------------------- */
+  function dreImportacao(config, r) {
+    if (!isObj(config) || !isObj(r)) throw new Error('Resultado inválido para a DRE.');
+    var tb = config.tributos || {};
+    var basePisCofins = r.precoComTaxa - r.frete - r.icms;          // mesma base da calc 1 (F13/F14)
+    var receitaBruta = r.precoFinal;
+    function dre(regime) {
+      var presumido = regime === 'presumido';
+      var pisCof = presumido ? basePisCofins * (fracao(tb.pisCumulativo, 'PIS cumulativo') + fracao(tb.cofinsCumulativo, 'COFINS cumulativo'))
+                             : r.pis + r.cofins;                     // líquidos dos créditos da importação
+      var deducoes = r.difal + r.icms + pisCof;
+      var receitaLiquida = receitaBruta - deducoes;
+      var cmv = r.custoSemImposto;
+      var lucroBruto = receitaLiquida - cmv;
+      var despesas = r.frete + r.valorTaxaCartao;
+      var lucroOperacional = lucroBruto - despesas;
+      var irpjCsll = presumido
+        ? receitaBruta * (fracao(tb.presumidoBaseIRPJ, 'base IRPJ') * fracao(tb.irpj, 'IRPJ') + fracao(tb.presumidoBaseCSLL, 'base CSLL') * fracao(tb.csll, 'CSLL'))
+        : Math.max(0, lucroOperacional) * fracao(tb.irpjCsllReal, 'IRPJ/CSLL real');
+      var lucroLiquido = lucroOperacional - irpjCsll;
+      return checarFinito({ regime: regime, receitaBruta: receitaBruta, difal: r.difal, icms: r.icms, pisCofins: pisCof,
+        deducoes: deducoes, receitaLiquida: receitaLiquida, cmv: cmv, lucroBruto: lucroBruto, frete: r.frete, cartao: r.valorTaxaCartao,
+        lucroOperacional: lucroOperacional, irpjCsll: irpjCsll, lucroLiquido: lucroLiquido,
+        margemLiquida: receitaLiquida > 0 ? lucroLiquido / receitaLiquida : 0,
+        margemSobreValorPago: receitaBruta > 0 ? lucroLiquido / receitaBruta : 0,
+        tributosTotais: deducoes + irpjCsll });
+    }
+    return { real: dre('real'), presumido: dre('presumido') };
+  }
+
   function fmtBRL(v) {
     return 'R$ ' + (Math.round(v * 100) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
@@ -518,6 +556,6 @@
     return out;
   }
 
-  root.GM_CALC = { calcular: calcular, calcularRevenda: calcularRevenda, custoImportacao: custoImportacao, taxaCartao: taxaCartao, booleano: booleano,
+  root.GM_CALC = { calcular: calcular, calcularRevenda: calcularRevenda, dreImportacao: dreImportacao, custoImportacao: custoImportacao, taxaCartao: taxaCartao, booleano: booleano,
     findProduto: findProduto, validarConfig: validarConfig, fmtBRL: fmtBRL, UFS: UFS };
 })(typeof module !== 'undefined' ? module.exports : window);

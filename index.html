@@ -219,6 +219,10 @@
             <div class="value" id="out-precoFinal">—</div>
             <div class="sub" id="out-precoM2"></div>
           </div>
+          <div class="hero-pair">
+            <div class="mini-hero"><div class="label">Lucro líquido — lucro real (regime atual)</div><div class="value" id="out-liqReal">—</div><div class="sub" id="out-liqRealSub"></div></div>
+            <div class="mini-hero alt"><div class="label">Lucro líquido — se fosse lucro presumido</div><div class="value" id="out-liqPres">—</div><div class="sub" id="out-liqPresSub"></div></div>
+          </div>
           <div class="card">
             <h2>Resultado</h2>
             <div class="kv"><span class="k">Produto</span><span class="v" id="out-produto"></span></div>
@@ -253,6 +257,12 @@
           <div class="kv total"><span class="k">Custo total</span><span class="v" id="out-custoTotal"></span></div>
           <div class="kv" id="row-lucro"><span class="k">Lucro</span><span class="v" id="out-lucro"></span></div>
         </div>
+      </div>
+
+      <div class="card" style="margin-top:20px">
+        <h2>DRE da operação — lucro real × lucro presumido <small style="font-weight:400;color:#6b7280">(estimativa gerencial)</small></h2>
+        <p class="hint">Efeito desta venda nos dois regimes, montado a partir dos mesmos números da calculadora acima (o lucro operacional é o mesmo "Lucro" da planilha). No lucro real, PIS/COFINS são os líquidos dos créditos da importação; no presumido, 3,65% sem crédito e IRPJ/CSLL sobre 8%/12% da receita. A apuração de verdade é do período inteiro — validar com a contadoria.</p>
+        <div class="table-wrap"><table class="dre" id="out-dre"></table></div>
       </div>
 
       <div class="card" style="margin-top:20px">

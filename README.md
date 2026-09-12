@@ -82,6 +82,15 @@ custo total = DIFAL + ICMS + PIS + COFINS + custo s/ imposto + frete + taxa cart
 lucro = B18 − custo total      markup = lucro ÷ custo s/ imposto
 ```
 
+**DRE da importação direta (estimativa gerencial)** — montada em
+`calc.js → dreImportacao(config, resultado)` a partir do resultado acima, sem
+alterar nenhuma fórmula da calc 1: receita bruta (preço final) − DIFAL − ICMS
+efetivo − PIS/COFINS = receita líquida; − custo do vidro = lucro bruto; − frete
+− cartão = lucro operacional (idêntico ao "Lucro" da planilha); − IRPJ/CSLL =
+lucro líquido. Lucro real: PIS/COFINS líquidos dos créditos da importação e
+34% sobre o lucro; presumido: 3,65% sem crédito (os PIS/COFINS pagos na
+importação ficam no custo) e IRPJ/CSLL sobre 8%/12% da receita.
+
 **NCM e II** vêm da classe fiscal do produto: LG 7007.29.00 (II 25%) · CF 7005.29.00 (II 25%) · MI 7005.21.00 (II 9%) — conforme `VL 4+4!C17` → `Produtos!O2/O9/O14`.
 
 ## Calculadora 2 — Revenda de importado comprado no Brasil

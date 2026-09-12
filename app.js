@@ -297,12 +297,8 @@
     $(PFX.o + 'icmsTotal').textContent = brl(r.icmsTotal);
     $(PFX.o + 'creditoIPI').textContent = brl(r.creditoIPI);
     var dR = r.dre.real, dP = r.dre.presumido;
-    $(PFX.o + 'liqReal').textContent = brl(dR.lucroLiquido);
-    $(PFX.o + 'liqRealSub').textContent = pct(dR.margemSobreValorPago, 1) + ' do valor pago · IRPJ/CSLL ' + brl(dR.irpjCsll);
-    $(PFX.o + 'liqPres').textContent = brl(dP.lucroLiquido);
-    var delta = dP.lucroLiquido - dR.lucroLiquido;
-    $(PFX.o + 'liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(dP.irpjCsll);
-    renderDre(dR, dP);
+    renderHeroDre(PFX.o, dR, dP);
+    renderDre(dR, dP, PFX.o + 'dre', DRE_LINHAS_REVENDA);
 
     $(PFX.o + 'credPisCofins').textContent = brl(r.creditoPIS + r.creditoCOFINS);
     $(PFX.o + 'debPisCofins').textContent = brl(r.pisVenda + r.cofinsVenda);
@@ -344,37 +340,57 @@
     ]);
   }
 
-  function renderDre(a, b) {
-    function row(label, ka, kb, cls) {
-      var va = a[ka], vb = b[kb || ka];
-      var tr = el('tr', { class: cls || '' }, [el('td', { text: label }),
+  var DRE_LINHAS_REVENDA = [
+    ['Receita bruta (valor pago pelo cliente)', 'receitaBruta'],
+    ['(−) IPI destacado na saída', 'ipi', 'sub'],
+    ['(−) ICMS débito na saída', 'icms', 'sub'],
+    ['(−) DIFAL + FCP', 'difalFcp', 'sub'],
+    ['(−) PIS/COFINS sobre a venda', 'pisCofins', 'sub'],
+    ['= Receita líquida', 'receitaLiquida', 'total'],
+    ['(−) CMV (compra líquida dos tributos recuperáveis)', 'cmv'],
+    ['= Lucro bruto', 'lucroBruto', 'total'],
+    ['(−) Frete', 'frete', 'sub'],
+    ['(−) Taxa do cartão', 'cartao', 'sub'],
+    ['= Lucro operacional (antes de IRPJ/CSLL)', 'lucroOperacional', 'total'],
+    ['(−) IRPJ + CSLL', 'irpjCsll'],
+    ['= Lucro líquido da operação', 'lucroLiquido', 'final']
+  ];
+  var DRE_LINHAS_IMPORTACAO = [
+    ['Receita bruta (preço final ao cliente)', 'receitaBruta'],
+    ['(−) DIFAL', 'difal', 'sub'],
+    ['(−) ICMS (alíquota efetiva)', 'icms', 'sub'],
+    ['(−) PIS/COFINS (real: líquidos dos créditos da importação)', 'pisCofins', 'sub'],
+    ['= Receita líquida', 'receitaLiquida', 'total'],
+    ['(−) CMV (custo do vidro: importação + despesas)', 'cmv'],
+    ['= Lucro bruto', 'lucroBruto', 'total'],
+    ['(−) Frete', 'frete', 'sub'],
+    ['(−) Taxa do cartão', 'cartao', 'sub'],
+    ['= Lucro operacional (= "Lucro" da planilha)', 'lucroOperacional', 'total'],
+    ['(−) IRPJ + CSLL', 'irpjCsll'],
+    ['= Lucro líquido da operação', 'lucroLiquido', 'final']
+  ];
+  function renderDre(a, b, tableId, linhas, rotuloTributos) {
+    function row(label, k, cls) {
+      var va = a[k], vb = b[k];
+      return el('tr', { class: cls || '' }, [el('td', { text: label }),
         el('td', { text: brl(va), class: va < 0 ? 'neg' : '' }),
         el('td', { text: brl(vb), class: vb < 0 ? 'neg' : '' })]);
-      return tr;
     }
-    var t = $(PFX.o + 'dre'); t.innerHTML = '';
+    var t = $(tableId || PFX.o + 'dre'); t.innerHTML = '';
     t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: 'DRE da operação (estimativa gerencial)' }), el('th', { text: 'Lucro real (atual)' }), el('th', { text: 'Lucro presumido (simulação)' })])]));
     var tb = el('tbody');
-    tb.appendChild(row('Receita bruta (valor pago pelo cliente)', 'receitaBruta'));
-    tb.appendChild(row('(−) IPI destacado na saída', 'ipi', null, 'sub'));
-    tb.appendChild(row('(−) ICMS débito na saída', 'icms', null, 'sub'));
-    tb.appendChild(row('(−) DIFAL + FCP', 'difalFcp', null, 'sub'));
-    tb.appendChild(row('(−) PIS/COFINS sobre a venda', 'pisCofins', null, 'sub'));
-    tb.appendChild(row('= Receita líquida', 'receitaLiquida', null, 'total'));
-    tb.appendChild(row('(−) CMV (compra líquida dos tributos recuperáveis)', 'cmv'));
-    tb.appendChild(row('= Lucro bruto', 'lucroBruto', null, 'total'));
-    tb.appendChild(row('(−) Frete', 'frete', null, 'sub'));
-    tb.appendChild(row('(−) Taxa do cartão', 'cartao', null, 'sub'));
-    tb.appendChild(row('= Lucro operacional (antes de IRPJ/CSLL)', 'lucroOperacional', null, 'total'));
-    tb.appendChild(row('(−) IRPJ + CSLL', 'irpjCsll'));
-    tb.appendChild(row('= Lucro líquido da operação', 'lucroLiquido', null, 'final'));
-    var mg = el('tr', { class: 'sub' }, [el('td', { text: 'Margem líquida (sobre a receita líquida)' }), el('td', { text: pct(a.margemLiquida, 1) }), el('td', { text: pct(b.margemLiquida, 1) })]);
-    tb.appendChild(mg);
-    var mv = el('tr', { class: 'sub' }, [el('td', { text: 'Lucro líquido sobre o valor pago pelo cliente' }), el('td', { text: pct(a.margemSobreValorPago, 1) }), el('td', { text: pct(b.margemSobreValorPago, 1) })]);
-    tb.appendChild(mv);
-    var tt = el('tr', { class: 'sub' }, [el('td', { text: 'Tributos totais líquidos (ICMS, IPI, PIS/COFINS, DIFAL/FCP, IRPJ/CSLL)' }), el('td', { text: brl(a.tributosTotais) }), el('td', { text: brl(b.tributosTotais) })]);
-    tb.appendChild(tt);
+    (linhas || DRE_LINHAS_REVENDA).forEach(function (l) { tb.appendChild(row(l[0], l[1], l[2])); });
+    tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: 'Margem líquida (sobre a receita líquida)' }), el('td', { text: pct(a.margemLiquida, 1) }), el('td', { text: pct(b.margemLiquida, 1) })]));
+    tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: 'Lucro líquido sobre o valor pago pelo cliente' }), el('td', { text: pct(a.margemSobreValorPago, 1) }), el('td', { text: pct(b.margemSobreValorPago, 1) })]));
+    tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: rotuloTributos || 'Tributos totais líquidos (ICMS, IPI, PIS/COFINS, DIFAL/FCP, IRPJ/CSLL)' }), el('td', { text: brl(a.tributosTotais) }), el('td', { text: brl(b.tributosTotais) })]));
     t.appendChild(tb);
+  }
+  function renderHeroDre(prefix, dR, dP) {
+    $(prefix + 'liqReal').textContent = brl(dR.lucroLiquido);
+    $(prefix + 'liqRealSub').textContent = pct(dR.margemSobreValorPago, 1) + ' do valor pago · IRPJ/CSLL ' + brl(dR.irpjCsll);
+    $(prefix + 'liqPres').textContent = brl(dP.lucroLiquido);
+    var delta = dP.lucroLiquido - dR.lucroLiquido;
+    $(prefix + 'liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(dP.irpjCsll);
   }
 
   function limparResultadosRevenda(msg) {
@@ -462,6 +478,13 @@
 
     renderImportacao(r.importacao);
     renderGrafico(r);
+
+    // DRE (estimativa gerencial) calculada a partir do resultado — não mexe na calc 1
+    try {
+      var d1 = CALC.dreImportacao(config, r);
+      renderHeroDre('out-', d1.real, d1.presumido);
+      renderDre(d1.real, d1.presumido, 'out-dre', DRE_LINHAS_IMPORTACAO, 'Tributos totais (DIFAL, ICMS, PIS/COFINS líquidos, IRPJ/CSLL)');
+    } catch (e) { $('out-dre').innerHTML = ''; ['out-liqReal', 'out-liqPres'].forEach(function (id) { $(id).textContent = '—'; }); }
   }
 
   /* Gráfico: composição do preço final (barra empilhada 100%) */
@@ -522,6 +545,9 @@
     $('viz-bar').innerHTML = ''; $('viz-legend').innerHTML = '';
     $('viz-sub').textContent = 'Corrija as entradas para ver a composição.';
     $('viz-prejuizo').classList.add('hidden');
+    $('out-dre').innerHTML = '';
+    ['out-liqReal', 'out-liqPres'].forEach(function (id) { $(id).textContent = '—'; });
+    ['out-liqRealSub', 'out-liqPresSub'].forEach(function (id) { $(id).textContent = ''; });
   }
 
   function renderImportacao(i) {
