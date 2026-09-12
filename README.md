@@ -95,36 +95,50 @@ cliente (normalmente não contribuinte) em outra UF:
 ```
 Compra (NF do fornecedor, ICMS por dentro, IPI por fora)
   produtos        = preço/m² × m² × (1 + perda)
-  IPI compra      = produtos × IPI%              (crédito se "IPI gera crédito")
+  IPI compra      = produtos × IPI%              (crédito só se "IPI gera crédito" — industrialização)
   crédito ICMS    = produtos × ICMS da compra   (4% = importado interestadual)
-  crédito PIS/COFINS = (produtos − ICMS [+ IPI se não creditável]) × 9,25%
-  custo líquido   = produtos + IPI − créditos
+  crédito PIS/COFINS = (produtos − ICMS) × 9,25%   (IPI não recuperável fica fora — Lei 14.592/2023)
+  CMV             = produtos + IPI − créditos
 
 Venda
-  base            = (preço/m² × m² + frete) × (1 + taxa cartão) − frete
-  débito ICMS     = base × 4% (interestadual)  |  × interna da empresa se venda interna
-  ICMS interno    = débito − crédito            → devido à UF da empresa (negativo = saldo credor)
-  DIFAL           = base × (interna da UF do cliente − 4%)   se NÃO contribuinte e interestadual
-  FCP             = base × FCP da UF do cliente               (tabela em Configurações; só RJ 2% preenchido)
-  IPI venda       = base × IPI na venda%       (repassado; débito − crédito de IPI = a recolher)
-  PIS/COFINS      = (base − débito ICMS) × 9,25% − crédito
-  preço final     = preço + taxa + IPI venda + DIFAL + FCP
-  custo total     = NF compra + IPI devido + ICMS interno + DIFAL + FCP + PIS/COFINS devidos + frete + taxa
-  lucro           = preço final − custo total;  markup = lucro ÷ custo líquido
+  subtotal        = preço/m² × m² + frete cobrado na NF (CIF integra a operação)
+  com cartão      = subtotal ÷ (1 − taxa)           (gross-up: o líquido recebido é o subtotal)
+  preço FECHADO   : valor da operação = com cartão; IPI por dentro = V − V ÷ (1 + IPI%)
+  preço POR FORA  : produtos = com cartão; IPI = produtos × IPI%;
+                    valor da operação = (produtos + IPI) ÷ (1 − DIFAL% − FCP%)   ← gross-up (base única)
+  base do ICMS    = valor da operação (IPI incluso) p/ não contribuinte | produtos (IPI fora) p/ contribuinte
+  débito ICMS     = base × alíquota da saída (4% editável; interna da empresa se venda interna)
+  apuração ICMS   = débito − crédito → "a recolher" (≥ 0) e "saldo credor" (crédito a transportar) em linhas separadas
+  DIFAL           = base × (interna da UF do cliente − alíquota da saída)   se NÃO contribuinte e interestadual
+  FCP             = base × FCP da UF do cliente  (só RJ 2% confirmado; UF sem FCP cadastrado BLOQUEIA o cálculo)
+  IPI venda       : débito − crédito de IPI = a recolher (ou saldo credor)
+  PIS/COFINS      = (operação − IPI − ICMS próprio − DIFAL) × 9,25% − crédito   (FCP fica na base — SC Cosit 61/2024)
+  custo total     = NF compra + IPI apurado + ICMS apurado + DIFAL + FCP + PIS/COFINS apurados + frete + taxa
+  lucro operacional = valor da operação − custo total;  markup = lucro ÷ CMV
 ```
 
-**DRE da operação (lucro real × lucro presumido)** — a tela mostra a
-demonstração de resultado desta venda nos dois regimes: receita bruta (valor
-pago pelo cliente) − IPI − ICMS − DIFAL/FCP − PIS/COFINS = receita líquida;
-− CMV (compra líquida dos tributos recuperáveis) = lucro bruto; − frete −
-cartão = lucro operacional; − IRPJ/CSLL = lucro líquido. No lucro real,
-IRPJ/CSLL = 34% do lucro e PIS/COFINS 9,25% com créditos; no presumido,
-IRPJ/CSLL sobre 8%/12% da receita e PIS/COFINS 3,65% sem créditos
-(parâmetros em Configurações → Tributos sobre o resultado). A coluna do
-presumido é simulação — a opção é anual e vale para a empresa inteira.
+**DRE da operação (estimativa gerencial, lucro real × lucro presumido)** — a
+tela mostra o efeito incremental desta venda nos dois regimes: receita bruta
+(valor da operação) − IPI − ICMS − DIFAL/FCP − PIS/COFINS = receita líquida;
+− CMV = lucro bruto; − frete − cartão = lucro operacional; − IRPJ/CSLL = lucro
+líquido. Lucro real: IRPJ/CSLL = 34% do lucro (aproximação; o adicional
+depende do lucro anual) e PIS/COFINS 9,25% com créditos; presumido: IRPJ/CSLL
+sobre 8%/12% da receita sem IPI e PIS/COFINS 3,65% sem créditos (parâmetros em
+Configurações → Tributos sobre o resultado). A margem líquida é sobre a receita
+líquida; a tela também mostra o lucro sobre o valor pago. A coluna do presumido
+é simulação — a opção é anual e vale para a empresa inteira.
 
-Exemplo do memorial (compra 100 mil a 4%, venda 200 mil MG→RJ não contribuinte):
-crédito 4.000, débito 8.000, interno 4.000 (MG), DIFAL 32.000 + FCP 4.000 (RJ) = ICMS total 40.000.
+Exemplo do memorial (compra 100 mil a 4%, venda de 200 mil fechado MG→RJ não contribuinte):
+crédito 4.000, débito 8.000, a recolher 4.000 (MG), DIFAL 32.000 + FCP 4.000 (RJ) = ICMS total 40.000.
+
+Simulação de referência (600 m², 69,70 → 125 fechado, RJ não contribuinte, IPI 6,5%):
+total 75.000 · PIS/COFINS débito 5.126,58 · custo 62.637,63 · lucro operacional
+12.362,37 · líquido real 8.159,16 · líquido presumido 10.146,78 (conferido com
+parecer técnico externo, set/2026; teste `Simulação §4` em `test/test.js`).
+
+Pendências com a contadoria: FCP das demais UFs; alíquotas internas 2026 (PR,
+RS, MT); exclusão do DIFAL da base de PIS/COFINS (adotada, conforme STJ Tema
+1.372) e do FCP (não adotada); FCI e conteúdo de importação do produto beneficiado.
 
 ## Validação
 

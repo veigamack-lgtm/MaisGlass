@@ -294,10 +294,11 @@
               <select id="r-contribuinte"><option value="nao">Não contribuinte do ICMS (sem IE)</option><option value="sim">Contribuinte do ICMS (com IE)</option></select></div>
             <div class="field"><label>UF de destino (cliente)</label><select id="r-clienteUF"></select></div>
             <div class="field"><label>Preço de venda (R$/m²)</label><input type="number" id="r-precoVenda" min="0" step="0.01"></div>
-            <div class="field"><label>Tratamento do DIFAL/FCP no preço<small>Para não contribuinte no RJ são 18% do valor</small></label>
-              <select id="r-difalIncluso"><option value="fora">Cobrados à parte (preço + DIFAL/FCP)</option><option value="dentro">Preço fechado (saem da margem)</option></select></div>
+            <div class="field"><label>O preço combinado é…<small>Fechado: é o total da NF (IPI por dentro, DIFAL/FCP saem da margem). Por fora: é o valor dos produtos; IPI, DIFAL e FCP são cobrados em acréscimo com gross-up</small></label>
+              <select id="r-difalIncluso"><option value="dentro">Preço fechado (total pago pelo cliente)</option><option value="fora">Valor dos produtos (IPI/DIFAL/FCP cobrados à parte)</option></select></div>
+            <div class="field"><label>ICMS interestadual da saída (%)<small>4% = importado com conteúdo &gt; 40% e FCI; se não mantiver, 12% (ou 7% p/ N/NE/CO/ES)</small></label><input type="number" id="r-icmsSaida" min="0" step="0.5"></div>
             <div class="field"><label>IPI destacado na saída (%)<small>Indústria destaca; débito compensa o crédito da entrada</small></label><input type="number" id="r-ipiVenda" min="0" step="0.5"></div>
-            <div class="field"><label>Frete cobrado na NF (R$)<small>Se o cliente contrata o frete (FOB), deixe 0</small></label><input type="number" id="r-frete" min="0" step="0.01"></div>
+            <div class="field"><label>Frete cobrado na NF (R$)<small>CIF: integra o valor da operação e as bases do ICMS/DIFAL/IPI. Se o cliente contrata o frete (FOB), deixe 0</small></label><input type="number" id="r-frete" min="0" step="0.01"></div>
             <div class="field"><label>Condição de pagamento</label><select id="r-pagamento"><option>À vista</option><option>Parcelado</option></select></div>
             <div class="field"><label>Bandeira do cartão</label><select id="r-bandeira"></select></div>
             <div class="field"><label>Número de parcelas</label><input type="number" id="r-parcelas" min="1" max="12" step="1"></div>
@@ -318,7 +319,8 @@
             <h2>Apuração do ICMS</h2>
             <div class="kv"><span class="k">(+) Crédito de ICMS na entrada</span><span class="v" id="ro-creditoICMS"></span></div>
             <div class="kv"><span class="k" id="ro-icmsDebitoLabel">(−) Débito de ICMS na saída</span><span class="v" id="ro-icmsDebito"></span></div>
-            <div class="kv"><span class="k" id="ro-icmsInternoLabel">= ICMS a recolher (apuração)</span><span class="v" id="ro-icmsInterno"></span></div>
+            <div class="kv"><span class="k" id="ro-icmsInternoLabel">= ICMS a recolher (efeito nesta venda)</span><span class="v" id="ro-icmsInterno"></span></div>
+            <div class="kv"><span class="k">Saldo credor de ICMS (crédito a transportar)</span><span class="v" id="ro-saldoCredorICMS"></span></div>
             <div class="kv"><span class="k" id="ro-difalLabel">DIFAL — partilha ao estado de destino</span><span class="v" id="ro-difal"></span></div>
             <div class="kv"><span class="k" id="ro-fcpLabel">FCP — Fundo de Combate à Pobreza</span><span class="v" id="ro-fcp"></span></div>
             <div class="kv total"><span class="k">Carga total de ICMS na operação</span><span class="v" id="ro-icmsTotal"></span></div>
@@ -329,16 +331,17 @@
             <div class="kv"><span class="k">IPI: débito na saída</span><span class="v" id="ro-ipiVenda"></span></div>
             <div class="kv"><span class="k" id="ro-ipiDevidoLabel">= IPI a recolher</span><span class="v" id="ro-ipiDevido"></span></div>
             <div class="kv"><span class="k">PIS/COFINS: crédito na entrada (9,25%)</span><span class="v" id="ro-credPisCofins"></span></div>
+            <div class="kv"><span class="k">PIS/COFINS: base na saída (operação − IPI − ICMS − DIFAL)</span><span class="v" id="ro-basePisCofins"></span></div>
             <div class="kv"><span class="k">PIS/COFINS: débito na saída (9,25%)</span><span class="v" id="ro-debPisCofins"></span></div>
-            <div class="kv total"><span class="k">= PIS/COFINS a recolher</span><span class="v" id="ro-pisCofinsDevido"></span></div>
+            <div class="kv total"><span class="k" id="ro-pisCofinsDevidoLabel">= PIS/COFINS a recolher</span><span class="v" id="ro-pisCofinsDevido"></span></div>
           </div>
           <div class="notes" style="margin-top:14px" id="ro-notas"></div>
         </div>
       </div>
 
       <div class="card" style="margin-top:20px">
-        <h2>DRE da operação — lucro real × lucro presumido</h2>
-        <p class="hint">Demonstração do resultado desta venda nos dois regimes. O lucro real é o regime atual da MaisGlass; a coluna do presumido mostra quanto a mesma operação renderia se a empresa optasse por ele (decisão anual, vale para a empresa inteira — validar com a contadoria).</p>
+        <h2>DRE da operação — lucro real × lucro presumido <small style="font-weight:400;color:#6b7280">(estimativa gerencial)</small></h2>
+        <p class="hint">Efeito incremental desta venda nos dois regimes — a apuração de verdade é do período inteiro e o adicional de IRPJ depende do lucro anual. O lucro real é o regime atual da MaisGlass; a coluna do presumido mostra quanto a mesma operação renderia se a empresa optasse por ele (decisão anual, vale para a empresa inteira — validar com a contadoria).</p>
         <div class="table-wrap"><table class="dre" id="ro-dre"></table></div>
       </div>
 
@@ -355,7 +358,8 @@
         <div class="card">
           <h2>Resultado operacional</h2>
           <div class="kv"><span class="k">Taxa do cartão</span><span class="v" id="ro-taxaCartao"></span></div>
-          <div class="kv"><span class="k">Preço + taxa do cartão</span><span class="v" id="ro-precoComTaxa"></span></div>
+          <div class="kv"><span class="k">Preço combinado + frete + taxa do cartão</span><span class="v" id="ro-precoComTaxa"></span></div>
+          <div class="kv"><span class="k">Valor da operação (total da NF)</span><span class="v" id="ro-valorOperacao"></span></div>
           <div class="kv"><span class="k">DIFAL + FCP</span><span class="v" id="ro-difalFcp"></span></div>
           <div class="kv"><span class="k">Frete na NF</span><span class="v" id="ro-frete"></span></div>
           <div class="kv total"><span class="k">Custo total da operação</span><span class="v" id="ro-custoTotal"></span></div>
@@ -376,11 +380,12 @@
         <summary>Glossário dos termos usados</summary>
         <div class="gloss">
           <p><b>Crédito de ICMS (entrada)</b> — ICMS destacado na NF do fornecedor que a MaisGlass abate do imposto devido na saída (não cumulatividade).</p>
-          <p><b>Débito de ICMS (saída)</b> — ICMS devido na venda: 4% na interestadual de mercadoria importada (Res. SF 13/2012), alíquota interna quando o cliente está em MG.</p>
-          <p><b>ICMS a recolher (apuração)</b> — débitos menos créditos do período; negativo = saldo credor a transportar.</p>
+          <p><b>Débito de ICMS (saída)</b> — ICMS devido na venda: 4% na interestadual de mercadoria importada (Res. SF 13/2012), alíquota interna quando o cliente está em MG. A base é o valor da operação (frete CIF incluso); para consumidor final o IPI integra a base, para contribuinte que revende/industrializa fica fora (LC 87/96, art. 13).</p>
+          <p><b>ICMS a recolher / saldo credor</b> — débitos menos créditos; quando o crédito é maior, sobra saldo credor a transportar para o período seguinte (não é dinheiro de volta). A apuração real é do mês inteiro; aqui é o efeito desta venda.</p>
+          <p><b>Gross-up</b> — quando o preço combinado é o valor dos produtos e o cliente paga IPI, DIFAL e FCP em acréscimo, o total da NF é produtos × (1 + IPI) ÷ (1 − DIFAL − FCP), porque DIFAL e FCP incidem sobre o total (base única).</p>
           <p><b>DIFAL</b> — diferencial de alíquota (interna do destino − interestadual) devido ao estado do cliente quando ele não é contribuinte (EC 87/2015, LC 190/2022). <b>FCP</b> — adicional do Fundo de Combate à Pobreza do estado de destino (RJ: 2%).</p>
           <p><b>IPI</b> — indústria destaca na saída e credita o IPI dos insumos; revenda sem industrializar não destaca nem credita. <b>FCI</b> — Ficha de Conteúdo de Importação, obrigatória para manter os 4% quando o produto industrializado tem mais de 40% de conteúdo importado.</p>
-          <p><b>PIS/COFINS não cumulativo</b> (lucro real) — 1,65% + 7,6% sobre a receita, com crédito sobre as compras (base sem ICMS). <b>Cumulativo</b> (presumido) — 0,65% + 3% sem créditos.</p>
+          <p><b>PIS/COFINS não cumulativo</b> (lucro real) — 1,65% + 7,6% sobre a receita (valor da operação − IPI − ICMS próprio − DIFAL; FCP mantido na base, SC Cosit 61/2024), com crédito sobre as compras (base sem ICMS; IPI não recuperável fora, Lei 14.592/2023). <b>Cumulativo</b> (presumido) — 0,65% + 3% sem créditos.</p>
           <p><b>CMV</b> — custo da mercadoria vendida: compra menos os tributos recuperáveis. <b>Receita líquida</b> — receita bruta menos tributos sobre a venda. <b>Lucro operacional</b> — resultado antes de IRPJ/CSLL. <b>IRPJ/CSLL</b> — 34% sobre o lucro (real) ou sobre 8%/12% da receita (presumido).</p>
         </div>
       </details>
@@ -462,7 +467,7 @@
           <div class="field"><label>Presumido: COFINS cumulativo (%)</label><input type="number" step="0.01" data-cfg="tributos.cofinsCumulativo" data-type="pct"></div>
           <details>
             <summary>FCP por UF (Fundo de Combate à Pobreza)</summary>
-            <p class="hint">Cobrado junto com o DIFAL para cliente não contribuinte. Só o RJ (2%) está preenchido; confirme os demais estados com a contadora antes de usar.</p>
+            <p class="hint">Cobrado junto com o DIFAL para cliente não contribuinte. Só o RJ (2%) está confirmado. Estado em branco = não confirmado: a calculadora de revenda <b>bloqueia</b> a venda a não contribuinte nessa UF até você informar o valor (0 se o estado não cobra).</p>
             <div class="table-wrap" id="cfg-fcp"></div>
           </details>
 
