@@ -104,6 +104,20 @@
   .hidden { display: none !important; }
   .warn { color: var(--warn); font-size: 13px; }
   footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
+  .hero-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  @media (max-width: 600px) { .hero-pair { grid-template-columns: 1fr; } }
+  .mini-hero { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  .mini-hero.alt { background: var(--accent); }
+  .mini-hero .label { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+  .mini-hero .value { font-size: 22px; font-weight: 700; margin-top: 2px; }
+  .mini-hero .sub { font-size: 12px; color: var(--muted); }
+  table.dre th:not(:first-child), table.dre td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.dre tr.sub td:first-child { padding-left: 22px; color: var(--muted); }
+  table.dre tr.total td { font-weight: 700; border-top: 2px solid var(--ink); background: var(--light, #fbfcfe); }
+  table.dre tr.final td { font-weight: 700; font-size: 15px; background: var(--accent); }
+  table.dre td.neg { color: var(--danger); }
+  table.dre .delta { font-size: 12px; color: var(--muted); font-weight: 400; }
+  .gloss p { margin: 6px 0; font-size: 13.5px; color: var(--muted); } .gloss b { color: var(--ink); }
   .home-title { font-size: 20px; font-weight: 600; margin: 10px 0 18px; }
   .home-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
   @media (max-width: 860px) { .home-grid { grid-template-columns: 1fr; } }
@@ -262,25 +276,29 @@
       <div class="grid">
         <div>
           <div class="card purple">
-            <h2>Compra (fornecedor com IE)</h2>
-            <div class="field"><label>UF do fornecedor</label><select id="r-fornecedorUF"></select></div>
-            <div class="field"><label>Preço de compra (R$/m²)<small>Valor dos produtos na NF, ICMS por dentro</small></label><input type="number" id="r-precoCompra" min="0" step="0.01"></div>
+            <h2>Entrada — compra do fornecedor (com IE)</h2>
+            <div class="field"><label>UF de origem (fornecedor)</label><select id="r-fornecedorUF"></select></div>
+            <div class="field"><label>Valor unitário na NF de entrada (R$/m²)<small>Valor dos produtos, ICMS incluso na base</small></label><input type="number" id="r-precoCompra" min="0" step="0.01"></div>
             <div class="field"><label>Quantidade (m²)</label><input type="number" id="r-quantidade" min="0" step="0.01"></div>
-            <div class="field"><label>Perda (%)<small>Aproveitamento de corte</small></label><input type="number" id="r-perda" min="0" step="0.5" value="0"></div>
-            <div class="field"><label>ICMS destacado na compra (%)<small>4% = importado interestadual</small></label><input type="number" id="r-icmsCompra" min="0" step="0.5"></div>
-            <div class="field"><label>IPI destacado (%)</label><input type="number" id="r-ipi" min="0" step="0.5"></div>
-            <div class="field"><label>IPI gera crédito?<small>MaisGlass é indústria (beneficiamento): sim</small></label>
-              <select id="r-ipiCredito"><option value="sim">Sim, crédito</option><option value="nao">Não, vira custo</option></select></div>
+            <div class="field"><label>Perda no beneficiamento (%)<small>Aproveitamento de corte</small></label><input type="number" id="r-perda" min="0" step="0.5" value="0"></div>
+            <div class="field"><label>ICMS destacado na entrada (%)<small>4% = mercadoria importada, interestadual</small></label><input type="number" id="r-icmsCompra" min="0" step="0.5"></div>
+            <div class="field"><label>IPI destacado na entrada (%)</label><input type="number" id="r-ipi" min="0" step="0.5"></div>
+            <div class="field"><label>Natureza da operação<small>Define o tratamento do IPI</small></label>
+              <select id="r-modo"><option value="beneficiamento">Industrialização (beneficiamento) e venda</option><option value="revenda">Revenda sem industrializar</option></select></div>
+            <div class="field"><label>Crédito de IPI na entrada?<small>Cabe quando o vidro é insumo da industrialização</small></label>
+              <select id="r-ipiCredito"><option value="sim">Sim — insumo</option><option value="nao">Não — integra o custo</option></select></div>
           </div>
           <div class="card purple" style="margin-top:20px">
-            <h2>Venda</h2>
-            <div class="field"><label>Cliente é contribuinte?</label>
-              <select id="r-contribuinte"><option value="nao">Não contribuinte</option><option value="sim">Contribuinte</option></select></div>
-            <div class="field"><label>UF do cliente</label><select id="r-clienteUF"></select></div>
+            <h2>Saída — venda ao cliente</h2>
+            <div class="field"><label>Destinatário</label>
+              <select id="r-contribuinte"><option value="nao">Não contribuinte do ICMS (sem IE)</option><option value="sim">Contribuinte do ICMS (com IE)</option></select></div>
+            <div class="field"><label>UF de destino (cliente)</label><select id="r-clienteUF"></select></div>
             <div class="field"><label>Preço de venda (R$/m²)</label><input type="number" id="r-precoVenda" min="0" step="0.01"></div>
-            <div class="field"><label>IPI na venda (%)<small>Se a MaisGlass destacar IPI na saída; abate o crédito da compra</small></label><input type="number" id="r-ipiVenda" min="0" step="0.5"></div>
-            <div class="field"><label>Frete (R$)</label><input type="number" id="r-frete" min="0" step="0.01"></div>
-            <div class="field"><label>Pagamento</label><select id="r-pagamento"><option>À vista</option><option>Parcelado</option></select></div>
+            <div class="field"><label>Tratamento do DIFAL/FCP no preço<small>Para não contribuinte no RJ são 18% do valor</small></label>
+              <select id="r-difalIncluso"><option value="fora">Cobrados à parte (preço + DIFAL/FCP)</option><option value="dentro">Preço fechado (saem da margem)</option></select></div>
+            <div class="field"><label>IPI destacado na saída (%)<small>Indústria destaca; débito compensa o crédito da entrada</small></label><input type="number" id="r-ipiVenda" min="0" step="0.5"></div>
+            <div class="field"><label>Frete cobrado na NF (R$)<small>Se o cliente contrata o frete (FOB), deixe 0</small></label><input type="number" id="r-frete" min="0" step="0.01"></div>
+            <div class="field"><label>Condição de pagamento</label><select id="r-pagamento"><option>À vista</option><option>Parcelado</option></select></div>
             <div class="field"><label>Bandeira do cartão</label><select id="r-bandeira"></select></div>
             <div class="field"><label>Número de parcelas</label><input type="number" id="r-parcelas" min="1" max="12" step="1"></div>
           </div>
@@ -288,60 +306,84 @@
 
         <div>
           <div class="result-hero">
-            <div class="label">Preço final ao cliente</div>
+            <div class="label">Valor total pago pelo cliente</div>
             <div class="value" id="ro-precoFinal">—</div>
             <div class="sub" id="ro-precoM2"></div>
           </div>
+          <div class="hero-pair">
+            <div class="mini-hero"><div class="label">Lucro líquido — lucro real (regime atual)</div><div class="value" id="ro-liqReal">—</div><div class="sub" id="ro-liqRealSub"></div></div>
+            <div class="mini-hero alt"><div class="label">Lucro líquido — se fosse lucro presumido</div><div class="value" id="ro-liqPres">—</div><div class="sub" id="ro-liqPresSub"></div></div>
+          </div>
           <div class="card">
             <h2>Apuração do ICMS</h2>
-            <div class="kv"><span class="k">Crédito na compra</span><span class="v" id="ro-creditoICMS"></span></div>
-            <div class="kv"><span class="k" id="ro-icmsDebitoLabel">Débito na venda</span><span class="v" id="ro-icmsDebito"></span></div>
-            <div class="kv"><span class="k" id="ro-icmsInternoLabel">ICMS interno devido</span><span class="v" id="ro-icmsInterno"></span></div>
-            <div class="kv"><span class="k" id="ro-difalLabel">DIFAL</span><span class="v" id="ro-difal"></span></div>
-            <div class="kv"><span class="k" id="ro-fcpLabel">FCP</span><span class="v" id="ro-fcp"></span></div>
-            <div class="kv total"><span class="k">Custo total de ICMS</span><span class="v" id="ro-icmsTotal"></span></div>
+            <div class="kv"><span class="k">(+) Crédito de ICMS na entrada</span><span class="v" id="ro-creditoICMS"></span></div>
+            <div class="kv"><span class="k" id="ro-icmsDebitoLabel">(−) Débito de ICMS na saída</span><span class="v" id="ro-icmsDebito"></span></div>
+            <div class="kv"><span class="k" id="ro-icmsInternoLabel">= ICMS a recolher (apuração)</span><span class="v" id="ro-icmsInterno"></span></div>
+            <div class="kv"><span class="k" id="ro-difalLabel">DIFAL — partilha ao estado de destino</span><span class="v" id="ro-difal"></span></div>
+            <div class="kv"><span class="k" id="ro-fcpLabel">FCP — Fundo de Combate à Pobreza</span><span class="v" id="ro-fcp"></span></div>
+            <div class="kv total"><span class="k">Carga total de ICMS na operação</span><span class="v" id="ro-icmsTotal"></span></div>
           </div>
           <div class="card" style="margin-top:14px">
-            <h2>PIS / COFINS (lucro real)</h2>
-            <div class="kv"><span class="k">Crédito na compra (PIS + COFINS)</span><span class="v" id="ro-credPisCofins"></span></div>
-            <div class="kv"><span class="k">Débito na venda (PIS + COFINS)</span><span class="v" id="ro-debPisCofins"></span></div>
-            <div class="kv total"><span class="k">A recolher</span><span class="v" id="ro-pisCofinsDevido"></span></div>
+            <h2>Apuração de IPI e PIS/COFINS</h2>
+            <div class="kv"><span class="k">IPI: crédito na entrada</span><span class="v" id="ro-creditoIPI"></span></div>
+            <div class="kv"><span class="k">IPI: débito na saída</span><span class="v" id="ro-ipiVenda"></span></div>
+            <div class="kv"><span class="k" id="ro-ipiDevidoLabel">= IPI a recolher</span><span class="v" id="ro-ipiDevido"></span></div>
+            <div class="kv"><span class="k">PIS/COFINS: crédito na entrada (9,25%)</span><span class="v" id="ro-credPisCofins"></span></div>
+            <div class="kv"><span class="k">PIS/COFINS: débito na saída (9,25%)</span><span class="v" id="ro-debPisCofins"></span></div>
+            <div class="kv total"><span class="k">= PIS/COFINS a recolher</span><span class="v" id="ro-pisCofinsDevido"></span></div>
           </div>
           <div class="notes" style="margin-top:14px" id="ro-notas"></div>
         </div>
       </div>
 
+      <div class="card" style="margin-top:20px">
+        <h2>DRE da operação — lucro real × lucro presumido</h2>
+        <p class="hint">Demonstração do resultado desta venda nos dois regimes. O lucro real é o regime atual da MaisGlass; a coluna do presumido mostra quanto a mesma operação renderia se a empresa optasse por ele (decisão anual, vale para a empresa inteira — validar com a contadoria).</p>
+        <div class="table-wrap"><table class="dre" id="ro-dre"></table></div>
+      </div>
+
       <div class="grid" style="margin-top:20px">
         <div class="card">
-          <h2>Compra</h2>
-          <div class="kv"><span class="k">Valor dos produtos (NF)</span><span class="v" id="ro-compraProdutos"></span></div>
-          <div class="kv"><span class="k">IPI destacado</span><span class="v" id="ro-ipiCompra"></span></div>
-          <div class="kv total"><span class="k">Total pago ao fornecedor</span><span class="v" id="ro-totalNF"></span></div>
-          <div class="kv"><span class="k">(−) Créditos ICMS + IPI + PIS/COFINS</span><span class="v" id="ro-creditos"></span></div>
-          <div class="kv total"><span class="k">Custo líquido da mercadoria</span><span class="v" id="ro-custoLiquido"></span></div>
-          <div class="kv"><span class="k">Custo líquido por m²</span><span class="v" id="ro-custoLiquidoM2"></span></div>
+          <h2>Custo da mercadoria vendida (CMV)</h2>
+          <div class="kv"><span class="k">Valor dos produtos (NF de entrada)</span><span class="v" id="ro-compraProdutos"></span></div>
+          <div class="kv"><span class="k">(+) IPI destacado na entrada</span><span class="v" id="ro-ipiCompra"></span></div>
+          <div class="kv total"><span class="k">= Total da NF (desembolso ao fornecedor)</span><span class="v" id="ro-totalNF"></span></div>
+          <div class="kv"><span class="k">(−) Tributos recuperáveis: ICMS + IPI + PIS/COFINS</span><span class="v" id="ro-creditos"></span></div>
+          <div class="kv total"><span class="k">= CMV (custo líquido da mercadoria)</span><span class="v" id="ro-custoLiquido"></span></div>
+          <div class="kv"><span class="k">CMV por m²</span><span class="v" id="ro-custoLiquidoM2"></span></div>
         </div>
         <div class="card">
-          <h2>Resultado da operação</h2>
+          <h2>Resultado operacional</h2>
           <div class="kv"><span class="k">Taxa do cartão</span><span class="v" id="ro-taxaCartao"></span></div>
           <div class="kv"><span class="k">Preço + taxa do cartão</span><span class="v" id="ro-precoComTaxa"></span></div>
-          <div class="kv"><span class="k">IPI na venda (repassado)</span><span class="v" id="ro-ipiVenda"></span></div>
-          <div class="kv"><span class="k" id="ro-ipiDevidoLabel">IPI a recolher (débito − crédito)</span><span class="v" id="ro-ipiDevido"></span></div>
-          <div class="kv"><span class="k">DIFAL + FCP repassados</span><span class="v" id="ro-difalFcp"></span></div>
-          <div class="kv"><span class="k">Frete</span><span class="v" id="ro-frete"></span></div>
-          <div class="kv total"><span class="k">Custo total</span><span class="v" id="ro-custoTotal"></span></div>
-          <div class="kv" id="ro-row-lucro"><span class="k">Lucro</span><span class="v" id="ro-lucro"></span></div>
-          <div class="kv"><span class="k">Markup sobre custo líquido</span><span class="v" id="ro-markup"></span></div>
+          <div class="kv"><span class="k">DIFAL + FCP</span><span class="v" id="ro-difalFcp"></span></div>
+          <div class="kv"><span class="k">Frete na NF</span><span class="v" id="ro-frete"></span></div>
+          <div class="kv total"><span class="k">Custo total da operação</span><span class="v" id="ro-custoTotal"></span></div>
+          <div class="kv" id="ro-row-lucro"><span class="k">Lucro operacional (antes de IRPJ/CSLL)</span><span class="v" id="ro-lucro"></span></div>
+          <div class="kv"><span class="k">Markup sobre o CMV</span><span class="v" id="ro-markup"></span></div>
         </div>
       </div>
 
       <div class="card" style="margin-top:20px">
-        <h2>Para onde vai o preço final</h2>
+        <h2>Para onde vai o valor pago pelo cliente</h2>
         <p class="hint" id="rviz-sub"></p>
-        <div class="viz-bar" id="rviz-bar" role="img" aria-label="Composição do preço final"></div>
+        <div class="viz-bar" id="rviz-bar" role="img" aria-label="Composição do valor pago"></div>
         <div class="viz-legend" id="rviz-legend"></div>
         <p class="warn hidden" id="rviz-prejuizo"></p>
       </div>
+
+      <details>
+        <summary>Glossário dos termos usados</summary>
+        <div class="gloss">
+          <p><b>Crédito de ICMS (entrada)</b> — ICMS destacado na NF do fornecedor que a MaisGlass abate do imposto devido na saída (não cumulatividade).</p>
+          <p><b>Débito de ICMS (saída)</b> — ICMS devido na venda: 4% na interestadual de mercadoria importada (Res. SF 13/2012), alíquota interna quando o cliente está em MG.</p>
+          <p><b>ICMS a recolher (apuração)</b> — débitos menos créditos do período; negativo = saldo credor a transportar.</p>
+          <p><b>DIFAL</b> — diferencial de alíquota (interna do destino − interestadual) devido ao estado do cliente quando ele não é contribuinte (EC 87/2015, LC 190/2022). <b>FCP</b> — adicional do Fundo de Combate à Pobreza do estado de destino (RJ: 2%).</p>
+          <p><b>IPI</b> — indústria destaca na saída e credita o IPI dos insumos; revenda sem industrializar não destaca nem credita. <b>FCI</b> — Ficha de Conteúdo de Importação, obrigatória para manter os 4% quando o produto industrializado tem mais de 40% de conteúdo importado.</p>
+          <p><b>PIS/COFINS não cumulativo</b> (lucro real) — 1,65% + 7,6% sobre a receita, com crédito sobre as compras (base sem ICMS). <b>Cumulativo</b> (presumido) — 0,65% + 3% sem créditos.</p>
+          <p><b>CMV</b> — custo da mercadoria vendida: compra menos os tributos recuperáveis. <b>Receita líquida</b> — receita bruta menos tributos sobre a venda. <b>Lucro operacional</b> — resultado antes de IRPJ/CSLL. <b>IRPJ/CSLL</b> — 34% sobre o lucro (real) ou sobre 8%/12% da receita (presumido).</p>
+        </div>
+      </details>
     </section>
 
     <!-- ---------- ABA CONFIGURAÇÕES ---------- -->
@@ -410,6 +452,14 @@
           <div class="field"><label>ICMS padrão na compra de importado (%)</label><input type="number" step="0.5" data-cfg="revenda.icmsCompraImportado" data-type="pct"></div>
           <div class="field"><label>IPI padrão na compra (%)</label><input type="number" step="0.5" data-cfg="revenda.ipiCompra" data-type="pct"></div>
           <div class="field"><label>IPI gera crédito por padrão?</label><select data-cfg="revenda.ipiCredito" data-type="bool"><option value="1">Sim</option><option value="0">Não</option></select></div>
+          <h3>Tributos sobre o resultado (DRE da revenda)</h3>
+          <div class="field"><label>IRPJ + CSLL no lucro real (%)<small>15% + adicional 10% + CSLL 9%</small></label><input type="number" step="0.5" data-cfg="tributos.irpjCsllReal" data-type="pct"></div>
+          <div class="field"><label>Presumido: base IRPJ (%)</label><input type="number" step="0.5" data-cfg="tributos.presumidoBaseIRPJ" data-type="pct"></div>
+          <div class="field"><label>Presumido: base CSLL (%)</label><input type="number" step="0.5" data-cfg="tributos.presumidoBaseCSLL" data-type="pct"></div>
+          <div class="field"><label>Alíquota IRPJ (%)</label><input type="number" step="0.5" data-cfg="tributos.irpj" data-type="pct"></div>
+          <div class="field"><label>Alíquota CSLL (%)</label><input type="number" step="0.5" data-cfg="tributos.csll" data-type="pct"></div>
+          <div class="field"><label>Presumido: PIS cumulativo (%)</label><input type="number" step="0.01" data-cfg="tributos.pisCumulativo" data-type="pct"></div>
+          <div class="field"><label>Presumido: COFINS cumulativo (%)</label><input type="number" step="0.01" data-cfg="tributos.cofinsCumulativo" data-type="pct"></div>
           <details>
             <summary>FCP por UF (Fundo de Combate à Pobreza)</summary>
             <p class="hint">Cobrado junto com o DIFAL para cliente não contribuinte. Só o RJ (2%) está preenchido; confirme os demais estados com a contadora antes de usar.</p>

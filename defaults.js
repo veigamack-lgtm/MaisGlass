@@ -102,7 +102,7 @@
       empresaUF: 'MG',             // UF da MaisGlass (lucro real)
       icmsCompraImportado: 0.04,   // ICMS destacado na NF do fornecedor (importado, interestadual)
       ipiCompra: 0.065,            // IPI destacado pelo importador (equiparado a industrial)
-      ipiCredito: true,            // MaisGlass é indústria (beneficiamento de vidro): toma crédito do IPI
+      ipiCredito: true,            // MaisGlass compra, beneficia e revende: toma crédito do IPI e destaca IPI na saída
       /* FCP (Fundo de Combate à Pobreza) cobrado no DIFAL para NÃO contribuinte, por UF do cliente.
        * Só RJ preenchido (2%) conforme memorial da contadora; demais em 0 — confirmar antes de usar. */
       fcp: {
@@ -111,14 +111,27 @@
       }
     },
 
-    /* --- DIFAL por UF (aba DIFAL): [alíquota interna, DIFAL %].
-     * DIFAL = interna − 4% (interestadual de importado); MG = 0 (venda interna). --- */
+    /* --- Tributos sobre o resultado, para a DRE da revenda (calc 2) --- */
+    tributos: {
+      irpjCsllReal: 0.34,          // IRPJ 15% + adicional 10% + CSLL 9% sobre o lucro (empresa acima da faixa do adicional)
+      presumidoBaseIRPJ: 0.08,     // indústria/comércio: 8% da receita bruta
+      presumidoBaseCSLL: 0.12,     // 12% da receita bruta
+      irpj: 0.15,                  // alíquota IRPJ sobre a base presumida (adicional de 10% ignorado: base < R$ 60 mil/trimestre)
+      csll: 0.09,                  // alíquota CSLL
+      pisCumulativo: 0.0065,       // presumido: PIS 0,65% sem crédito
+      cofinsCumulativo: 0.03       // presumido: COFINS 3% sem crédito
+    },
+
+    /* --- DIFAL por UF (aba DIFAL da planilha, mantida como está): [alíquota interna, DIFAL %].
+     * DIFAL = interna − 4% (interestadual de importado); MG = 0 (venda interna).
+     * Única correção: MG interna 18% (a planilha trazia 11%; a calc 1 não usa esse número, a calc 2 usa na venda interna).
+     * Obs.: tabelas 2026 apontam PR 19,5% e RS 17% — ajustar em Configurações se a contadora confirmar. --- */
     interestadual: 0.04,
     difal: {
       AC: [0.19, 0.15],  AL: [0.19, 0.15],  AM: [0.20, 0.16],  AP: [0.18, 0.14],
       BA: [0.205, 0.165], CE: [0.20, 0.16], DF: [0.20, 0.16],  ES: [0.17, 0.13],
       GO: [0.19, 0.15],  MA: [0.23, 0.19],  MS: [0.17, 0.13],  MT: [0.19, 0.15],
-      MG: [0.11, 0],     PA: [0.19, 0.15],  PB: [0.20, 0.16],  PE: [0.205, 0.165],
+      MG: [0.18, 0],     PA: [0.19, 0.15],  PB: [0.20, 0.16],  PE: [0.205, 0.165],
       PI: [0.225, 0.185], PR: [0.19, 0.15], RJ: [0.20, 0.16],  RN: [0.20, 0.16],
       RO: [0.195, 0.155], RR: [0.20, 0.16], RS: [0.18, 0.14],  SC: [0.17, 0.13],
       SE: [0.19, 0.15],  SP: [0.18, 0.14],  TO: [0.20, 0.16]
@@ -148,7 +161,9 @@
     icmsCompra: 0.04,
     ipi: 0.065,
     ipiCredito: true,
-    ipiVenda: 0,            // IPI destacado na saída (indústria); 0 = não destaca
+    ipiVenda: 0.065,        // MaisGlass beneficia e revende: IPI destacado na saída
+    modo: 'beneficiamento', // 'revenda' (sem beneficiar: IPI da compra é custo, sem IPI na saída) | 'beneficiamento' (crédito de IPI e IPI na saída)
+    difalIncluso: false,    // false = DIFAL/FCP somados ao preço; true = preço fechado, DIFAL/FCP saem da margem
     contribuinte: false,
     clienteUF: 'RJ',
     precoVenda: 150,        // R$/m²

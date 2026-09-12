@@ -196,6 +196,8 @@
       icmsCompra: pctOrZero('r-icmsCompra'),
       ipi: pctOrZero('r-ipi'),
       ipiCredito: $('r-ipiCredito').value === 'sim',
+      modo: $('r-modo').value,
+      difalIncluso: $('r-difalIncluso').value === 'dentro',
       contribuinte: $('r-contribuinte').value === 'sim',
       clienteUF: $('r-clienteUF').value,
       precoVenda: $('r-precoVenda').value,
@@ -215,7 +217,9 @@
     $('r-perda').value = d.perda * 100;
     $('r-icmsCompra').value = Math.round((rv.icmsCompraImportado !== undefined ? rv.icmsCompraImportado : d.icmsCompra) * 1e4) / 100;
     $('r-ipi').value = Math.round((rv.ipiCompra !== undefined ? rv.ipiCompra : d.ipi) * 1e4) / 100;
-    $('r-ipiCredito').value = (rv.ipiCredito !== undefined ? rv.ipiCredito : d.ipiCredito) ? 'sim' : 'nao';
+    $('r-modo').value = d.modo;
+    $('r-ipiCredito').value = d.ipiCredito ? 'sim' : 'nao';
+    $('r-difalIncluso').value = d.difalIncluso ? 'dentro' : 'fora';
     $('r-contribuinte').value = d.contribuinte ? 'sim' : 'nao';
     $('r-clienteUF').value = d.clienteUF;
     $('r-precoVenda').value = d.precoVenda;
@@ -226,6 +230,12 @@
     $('r-parcelas').value = d.parcelas;
   }
 
+  function aplicarModoRevenda() {
+    // Coerência fiscal: revenda pura → IPI da compra é custo e não há IPI na saída;
+    // beneficiamento → crédito do IPI e IPI destacado na saída (padrão da classe, 6,5%).
+    if ($('r-modo').value === 'beneficiamento') { $('r-ipiCredito').value = 'sim'; $('r-ipiVenda').value = 6.5; }
+    else { $('r-ipiCredito').value = 'nao'; $('r-ipiVenda').value = 0; }
+  }
   function recalcularRevenda() {
     var inp = lerEntradasRevenda();
     var parcelado = inp.pagamento === 'Parcelado';
@@ -239,15 +249,23 @@
     $('ro-precoFinal').textContent = brl(r.precoFinal);
     $('ro-precoM2').textContent = brl(r.precoVendaM2) + ' por m² · ' + numFmt(Number(inp.quantidade), 2) + ' m²';
     $('ro-creditoICMS').textContent = brl(r.creditoICMS);
-    $('ro-icmsDebitoLabel').textContent = 'Débito na venda (' + pct(r.icmsVendaAliq, 1) + ')';
+    $('ro-icmsDebitoLabel').textContent = '(−) Débito de ICMS na saída (' + pct(r.icmsVendaAliq, 1) + ')';
     $('ro-icmsDebito').textContent = brl(r.icmsDebito);
-    $('ro-icmsInternoLabel').textContent = r.icmsInternoDevido >= 0 ? 'ICMS interno devido a ' + empresaUF : 'Saldo credor de ICMS em ' + empresaUF;
+    $('ro-icmsInternoLabel').textContent = r.icmsInternoDevido >= 0 ? '= ICMS a recolher em ' + empresaUF + ' (apuração)' : '= Saldo credor de ICMS em ' + empresaUF;
     $('ro-icmsInterno').textContent = brl(Math.abs(r.icmsInternoDevido));
-    $('ro-difalLabel').textContent = 'DIFAL ' + (r.difalPct > 0 ? pct(r.difalPct, 1) + ' — devido a ' + inp.clienteUF : '(não se aplica)');
+    $('ro-difalLabel').textContent = 'DIFAL ' + (r.difalPct > 0 ? pct(r.difalPct, 1) + ' — partilha devida a ' + inp.clienteUF : '— não se aplica');
     $('ro-difal').textContent = brl(r.difal);
-    $('ro-fcpLabel').textContent = 'FCP ' + (r.fcpPct > 0 ? pct(r.fcpPct, 1) + ' — devido a ' + inp.clienteUF : '(não se aplica)');
+    $('ro-fcpLabel').textContent = 'FCP ' + (r.fcpPct > 0 ? pct(r.fcpPct, 1) + ' — devido a ' + inp.clienteUF : '— não se aplica');
     $('ro-fcp').textContent = brl(r.fcp);
     $('ro-icmsTotal').textContent = brl(r.icmsTotal);
+    $('ro-creditoIPI').textContent = brl(r.creditoIPI);
+    var dR = r.dre.real, dP = r.dre.presumido;
+    $('ro-liqReal').textContent = brl(dR.lucroLiquido);
+    $('ro-liqRealSub').textContent = 'margem líquida ' + pct(dR.margemLiquida, 1) + ' · IRPJ/CSLL ' + brl(dR.irpjCsll);
+    $('ro-liqPres').textContent = brl(dP.lucroLiquido);
+    var delta = dP.lucroLiquido - dR.lucroLiquido;
+    $('ro-liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(dP.irpjCsll);
+    renderDre(dR, dP);
 
     $('ro-credPisCofins').textContent = brl(r.creditoPIS + r.creditoCOFINS);
     $('ro-debPisCofins').textContent = brl(r.pisVenda + r.cofinsVenda);
@@ -263,9 +281,9 @@
     $('ro-taxaCartao').textContent = pct(r.taxaCartao) + ' · ' + brl(r.valorTaxaCartao);
     $('ro-precoComTaxa').textContent = brl(r.precoComTaxa);
     $('ro-ipiVenda').textContent = brl(r.ipiVenda);
-    $('ro-ipiDevidoLabel').textContent = r.ipiDevido >= 0 ? 'IPI a recolher (débito − crédito)' : 'Saldo credor de IPI';
+    $('ro-ipiDevidoLabel').textContent = r.ipiDevido >= 0 ? '= IPI a recolher' : '= Saldo credor de IPI';
     $('ro-ipiDevido').textContent = brl(Math.abs(r.ipiDevido));
-    $('ro-difalFcp').textContent = brl(r.difal + r.fcp);
+    $('ro-difalFcp').textContent = brl(r.difal + r.fcp) + (r.difalIncluso ? ' (dentro do preço)' : '');
     $('ro-frete').textContent = brl(r.frete);
     $('ro-custoTotal').textContent = brl(r.custoTotal);
     $('ro-lucro').textContent = brl(r.lucro);
@@ -277,13 +295,44 @@
 
     var impostos = r.icmsInternoDevido + r.pisDevido + r.cofinsDevido + r.ipiDevido;
     renderGraficoGenerico('rviz', r.precoFinal, r.custoTotal, r.lucro, [
-      { nome: 'Mercadoria (NF do fornecedor)', sub: 'produtos + IPI, antes dos créditos', valor: r.totalNFCompra },
-      { nome: 'Impostos líquidos', sub: 'ICMS ' + brl(r.icmsInternoDevido) + ' · PIS/COFINS ' + brl(r.pisDevido + r.cofinsDevido) + ' · IPI ' + brl(r.ipiDevido) + ' (já descontados os créditos)', valor: impostos },
+      { nome: 'Mercadoria (NF de entrada)', sub: 'produtos + IPI, antes dos créditos', valor: r.totalNFCompra },
+      { nome: 'Tributos a recolher (líquidos de créditos)', sub: 'ICMS ' + brl(r.icmsInternoDevido) + ' · PIS/COFINS ' + brl(r.pisDevido + r.cofinsDevido) + ' · IPI ' + brl(r.ipiDevido), valor: impostos },
       { nome: 'DIFAL + FCP', sub: r.difalPct + r.fcpPct > 0 ? pct(r.difalPct + r.fcpPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal + r.fcp },
       { nome: 'Frete', sub: '', valor: r.frete },
       { nome: 'Taxa do cartão', sub: r.taxaCartao > 0 ? pct(r.taxaCartao) : 'à vista', valor: r.valorTaxaCartao },
-      { nome: 'Lucro', sub: 'markup ' + pct(r.markup, 1) + ' sobre o custo líquido', valor: r.lucro }
+      { nome: 'Lucro operacional', sub: 'antes de IRPJ/CSLL · markup ' + pct(r.markup, 1) + ' sobre o CMV', valor: r.lucro }
     ]);
+  }
+
+  function renderDre(a, b) {
+    function row(label, ka, kb, cls) {
+      var va = a[ka], vb = b[kb || ka];
+      var tr = el('tr', { class: cls || '' }, [el('td', { text: label }),
+        el('td', { text: brl(va), class: va < 0 ? 'neg' : '' }),
+        el('td', { text: brl(vb), class: vb < 0 ? 'neg' : '' })]);
+      return tr;
+    }
+    var t = $('ro-dre'); t.innerHTML = '';
+    t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: 'Demonstração do resultado da operação' }), el('th', { text: 'Lucro real (atual)' }), el('th', { text: 'Lucro presumido' })])]));
+    var tb = el('tbody');
+    tb.appendChild(row('Receita bruta (valor pago pelo cliente)', 'receitaBruta'));
+    tb.appendChild(row('(−) IPI destacado na saída', 'ipi', null, 'sub'));
+    tb.appendChild(row('(−) ICMS débito na saída', 'icms', null, 'sub'));
+    tb.appendChild(row('(−) DIFAL + FCP', 'difalFcp', null, 'sub'));
+    tb.appendChild(row('(−) PIS/COFINS sobre a venda', 'pisCofins', null, 'sub'));
+    tb.appendChild(row('= Receita líquida', 'receitaLiquida', null, 'total'));
+    tb.appendChild(row('(−) CMV (compra líquida dos tributos recuperáveis)', 'cmv'));
+    tb.appendChild(row('= Lucro bruto', 'lucroBruto', null, 'total'));
+    tb.appendChild(row('(−) Frete', 'frete', null, 'sub'));
+    tb.appendChild(row('(−) Taxa do cartão', 'cartao', null, 'sub'));
+    tb.appendChild(row('= Lucro operacional (antes de IRPJ/CSLL)', 'lucroOperacional', null, 'total'));
+    tb.appendChild(row('(−) IRPJ + CSLL', 'irpjCsll'));
+    tb.appendChild(row('= Lucro líquido da operação', 'lucroLiquido', null, 'final'));
+    var mg = el('tr', { class: 'sub' }, [el('td', { text: 'Margem líquida sobre a receita bruta' }), el('td', { text: pct(a.margemLiquida, 1) }), el('td', { text: pct(b.margemLiquida, 1) })]);
+    tb.appendChild(mg);
+    var tt = el('tr', { class: 'sub' }, [el('td', { text: 'Tributos totais líquidos (ICMS, IPI, PIS/COFINS, DIFAL/FCP, IRPJ/CSLL)' }), el('td', { text: brl(a.tributosTotais) }), el('td', { text: brl(b.tributosTotais) })]);
+    tb.appendChild(tt);
+    t.appendChild(tb);
   }
 
   function limparResultadosRevenda(msg) {
@@ -295,6 +344,9 @@
     $('rviz-bar').innerHTML = ''; $('rviz-legend').innerHTML = '';
     $('rviz-sub').textContent = 'Corrija as entradas para ver a composição.';
     $('rviz-prejuizo').classList.add('hidden');
+    $('ro-dre').innerHTML = '';
+    ['ro-liqReal', 'ro-liqPres'].forEach(function (id) { $(id).textContent = '—'; });
+    ['ro-liqRealSub', 'ro-liqPresSub'].forEach(function (id) { $(id).textContent = ''; });
   }
 
   function lerEntradas() {
@@ -647,6 +699,7 @@
     document.querySelectorAll('#tab-calc input, #tab-calc select').forEach(function (i) {
       i.addEventListener('input', recalcular); i.addEventListener('change', recalcular);
     });
+    $('r-modo').addEventListener('change', aplicarModoRevenda);
     document.querySelectorAll('#tab-revenda input, #tab-revenda select').forEach(function (i) {
       i.addEventListener('input', recalcularRevenda); i.addEventListener('change', recalcularRevenda);
     });

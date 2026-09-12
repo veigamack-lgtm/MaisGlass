@@ -113,6 +113,16 @@ Venda
   lucro           = preço final − custo total;  markup = lucro ÷ custo líquido
 ```
 
+**DRE da operação (lucro real × lucro presumido)** — a tela mostra a
+demonstração de resultado desta venda nos dois regimes: receita bruta (valor
+pago pelo cliente) − IPI − ICMS − DIFAL/FCP − PIS/COFINS = receita líquida;
+− CMV (compra líquida dos tributos recuperáveis) = lucro bruto; − frete −
+cartão = lucro operacional; − IRPJ/CSLL = lucro líquido. No lucro real,
+IRPJ/CSLL = 34% do lucro e PIS/COFINS 9,25% com créditos; no presumido,
+IRPJ/CSLL sobre 8%/12% da receita e PIS/COFINS 3,65% sem créditos
+(parâmetros em Configurações → Tributos sobre o resultado). A coluna do
+presumido é simulação — a opção é anual e vale para a empresa inteira.
+
 Exemplo do memorial (compra 100 mil a 4%, venda 200 mil MG→RJ não contribuinte):
 crédito 4.000, débito 8.000, interno 4.000 (MG), DIFAL 32.000 + FCP 4.000 (RJ) = ICMS total 40.000.
 
