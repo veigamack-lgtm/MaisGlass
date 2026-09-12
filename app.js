@@ -100,7 +100,15 @@
         else if (isObj(src[k]) && isObj(dst[k])) merge(dst[k], src[k]);
       });
     }
+    var fcpAntigo = isObj(out.revenda) && isObj(out.revenda.fcp) && !out.revenda.fcpRevisado;
     merge(out, DEF.config);
+    // Migração: tabelas FCP antigas vinham com 0 automático em todas as UFs; agora "não confirmado" é null e bloqueia a calc 2
+    if (fcpAntigo) {
+      Object.keys(out.revenda.fcp).forEach(function (uf) {
+        if (out.revenda.fcp[uf] === 0 && DEF.config.revenda.fcp[uf] === null) out.revenda.fcp[uf] = null;
+      });
+      out.revenda.fcpRevisado = true;
+    }
     return out;
   }
   /* Migra + valida; lança Error com a lista de problemas. */
@@ -202,6 +210,7 @@
       clienteUF: $('r-clienteUF').value,
       precoVenda: $('r-precoVenda').value,
       ipiVenda: pctOrZero('r-ipiVenda'),
+      icmsSaida: pctOrZero('r-icmsSaida'),
       frete: $('r-frete').value === '' ? 0 : $('r-frete').value,
       pagamento: $('r-pagamento').value,
       bandeira: $('r-bandeira').value,
@@ -224,6 +233,7 @@
     $('r-clienteUF').value = d.clienteUF;
     $('r-precoVenda').value = d.precoVenda;
     $('r-ipiVenda').value = d.ipiVenda * 100;
+    $('r-icmsSaida').value = Math.round((config.interestadual !== undefined ? config.interestadual : d.icmsSaida) * 1e4) / 100;
     $('r-frete').value = d.frete;
     $('r-pagamento').value = d.pagamento;
     $('r-bandeira').value = d.bandeira;
@@ -249,10 +259,11 @@
     $('ro-precoFinal').textContent = brl(r.precoFinal);
     $('ro-precoM2').textContent = brl(r.precoVendaM2) + ' por m² · ' + numFmt(Number(inp.quantidade), 2) + ' m²';
     $('ro-creditoICMS').textContent = brl(r.creditoICMS);
-    $('ro-icmsDebitoLabel').textContent = '(−) Débito de ICMS na saída (' + pct(r.icmsVendaAliq, 1) + ')';
+    $('ro-icmsDebitoLabel').textContent = '(−) Débito de ICMS na saída: ' + pct(r.icmsVendaAliq, 1) + ' × ' + brl(r.baseICMS) + (r.contribuinte ? ' (IPI fora da base)' : ' (IPI na base)');
     $('ro-icmsDebito').textContent = brl(r.icmsDebito);
-    $('ro-icmsInternoLabel').textContent = r.icmsInternoDevido >= 0 ? '= ICMS a recolher em ' + empresaUF + ' (apuração)' : '= Saldo credor de ICMS em ' + empresaUF;
-    $('ro-icmsInterno').textContent = brl(Math.abs(r.icmsInternoDevido));
+    $('ro-icmsInternoLabel').textContent = '= ICMS a recolher em ' + empresaUF + ' (efeito nesta venda)';
+    $('ro-icmsInterno').textContent = brl(r.icmsARecolher);
+    $('ro-saldoCredorICMS').textContent = r.saldoCredorICMS > 0 ? brl(r.saldoCredorICMS) : '—';
     $('ro-difalLabel').textContent = 'DIFAL ' + (r.difalPct > 0 ? pct(r.difalPct, 1) + ' — partilha devida a ' + inp.clienteUF : '— não se aplica');
     $('ro-difal').textContent = brl(r.difal);
     $('ro-fcpLabel').textContent = 'FCP ' + (r.fcpPct > 0 ? pct(r.fcpPct, 1) + ' — devido a ' + inp.clienteUF : '— não se aplica');
@@ -261,7 +272,7 @@
     $('ro-creditoIPI').textContent = brl(r.creditoIPI);
     var dR = r.dre.real, dP = r.dre.presumido;
     $('ro-liqReal').textContent = brl(dR.lucroLiquido);
-    $('ro-liqRealSub').textContent = 'margem líquida ' + pct(dR.margemLiquida, 1) + ' · IRPJ/CSLL ' + brl(dR.irpjCsll);
+    $('ro-liqRealSub').textContent = pct(dR.margemSobreValorPago, 1) + ' do valor pago · IRPJ/CSLL ' + brl(dR.irpjCsll);
     $('ro-liqPres').textContent = brl(dP.lucroLiquido);
     var delta = dP.lucroLiquido - dR.lucroLiquido;
     $('ro-liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(dP.irpjCsll);
@@ -269,7 +280,9 @@
 
     $('ro-credPisCofins').textContent = brl(r.creditoPIS + r.creditoCOFINS);
     $('ro-debPisCofins').textContent = brl(r.pisVenda + r.cofinsVenda);
-    $('ro-pisCofinsDevido').textContent = brl(r.pisDevido + r.cofinsDevido);
+    $('ro-pisCofinsDevidoLabel').textContent = r.saldoCredorPisCofins > 0 ? '= Saldo credor de PIS/COFINS' : '= PIS/COFINS a recolher';
+    $('ro-pisCofinsDevido').textContent = brl(r.saldoCredorPisCofins > 0 ? r.saldoCredorPisCofins : r.pisCofinsARecolher);
+    $('ro-basePisCofins').textContent = brl(r.basePisCofinsVenda);
 
     $('ro-compraProdutos').textContent = brl(r.compraProdutos);
     $('ro-ipiCompra').textContent = brl(r.ipiCompra);
@@ -281,9 +294,10 @@
     $('ro-taxaCartao').textContent = pct(r.taxaCartao) + ' · ' + brl(r.valorTaxaCartao);
     $('ro-precoComTaxa').textContent = brl(r.precoComTaxa);
     $('ro-ipiVenda').textContent = brl(r.ipiVenda);
-    $('ro-ipiDevidoLabel').textContent = r.ipiDevido >= 0 ? '= IPI a recolher' : '= Saldo credor de IPI';
-    $('ro-ipiDevido').textContent = brl(Math.abs(r.ipiDevido));
-    $('ro-difalFcp').textContent = brl(r.difal + r.fcp) + (r.difalIncluso ? ' (dentro do preço)' : '');
+    $('ro-ipiDevidoLabel').textContent = r.saldoCredorIPI > 0 ? '= Saldo credor de IPI' : '= IPI a recolher';
+    $('ro-ipiDevido').textContent = brl(r.saldoCredorIPI > 0 ? r.saldoCredorIPI : r.ipiARecolher);
+    $('ro-valorOperacao').textContent = brl(r.valorOperacao) + (r.difalIncluso ? ' (preço fechado)' : ' (com gross-up de IPI/DIFAL/FCP)');
+    $('ro-difalFcp').textContent = brl(r.difal + r.fcp) + (r.difalIncluso ? ' (dentro do preço)' : ' (cobrados em acréscimo)');
     $('ro-frete').textContent = brl(r.frete);
     $('ro-custoTotal').textContent = brl(r.custoTotal);
     $('ro-lucro').textContent = brl(r.lucro);
@@ -313,7 +327,7 @@
       return tr;
     }
     var t = $('ro-dre'); t.innerHTML = '';
-    t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: 'Demonstração do resultado da operação' }), el('th', { text: 'Lucro real (atual)' }), el('th', { text: 'Lucro presumido' })])]));
+    t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: 'DRE da operação (estimativa gerencial)' }), el('th', { text: 'Lucro real (atual)' }), el('th', { text: 'Lucro presumido (simulação)' })])]));
     var tb = el('tbody');
     tb.appendChild(row('Receita bruta (valor pago pelo cliente)', 'receitaBruta'));
     tb.appendChild(row('(−) IPI destacado na saída', 'ipi', null, 'sub'));
@@ -328,8 +342,10 @@
     tb.appendChild(row('= Lucro operacional (antes de IRPJ/CSLL)', 'lucroOperacional', null, 'total'));
     tb.appendChild(row('(−) IRPJ + CSLL', 'irpjCsll'));
     tb.appendChild(row('= Lucro líquido da operação', 'lucroLiquido', null, 'final'));
-    var mg = el('tr', { class: 'sub' }, [el('td', { text: 'Margem líquida sobre a receita bruta' }), el('td', { text: pct(a.margemLiquida, 1) }), el('td', { text: pct(b.margemLiquida, 1) })]);
+    var mg = el('tr', { class: 'sub' }, [el('td', { text: 'Margem líquida (sobre a receita líquida)' }), el('td', { text: pct(a.margemLiquida, 1) }), el('td', { text: pct(b.margemLiquida, 1) })]);
     tb.appendChild(mg);
+    var mv = el('tr', { class: 'sub' }, [el('td', { text: 'Lucro líquido sobre o valor pago pelo cliente' }), el('td', { text: pct(a.margemSobreValorPago, 1) }), el('td', { text: pct(b.margemSobreValorPago, 1) })]);
+    tb.appendChild(mv);
     var tt = el('tr', { class: 'sub' }, [el('td', { text: 'Tributos totais líquidos (ICMS, IPI, PIS/COFINS, DIFAL/FCP, IRPJ/CSLL)' }), el('td', { text: brl(a.tributosTotais) }), el('td', { text: brl(b.tributosTotais) })]);
     tb.appendChild(tt);
     t.appendChild(tb);
@@ -530,7 +546,7 @@
       el('thead', {}, [el('tr', {}, ['UF', 'FCP %'].map(function (h) { return el('th', { text: h }); }))]),
       el('tbody', {}, Object.keys(fcp).sort().map(function (uf) {
         return el('tr', {}, [el('td', { text: uf }),
-          inputCell(Math.round(fcp[uf] * 1e6) / 1e4, function (v) { fcp[uf] = (v === '' ? NaN : Number(v)) / 100; }, { step: '0.5' })]);
+          inputCell(fcp[uf] === null || fcp[uf] === undefined ? '' : Math.round(fcp[uf] * 1e6) / 1e4, function (v) { fcp[uf] = v === '' ? null : Number(v) / 100; }, { step: '0.5', placeholder: 'não confirmado' })]);
       }))
     ]);
     $('cfg-fcp').innerHTML = ''; $('cfg-fcp').appendChild(tbl);
@@ -550,6 +566,7 @@
   function inputCell(value, onChange, opts) {
     opts = opts || {};
     var i = el('input', { type: opts.type || 'number', step: opts.step || 'any', value: value });
+    if (opts.placeholder) i.placeholder = opts.placeholder;
     i.addEventListener('change', function () { onChange(i.value); });
     return el('td', { class: opts.type === 'text' ? ('txt' + (opts.wide ? ' wide' : '')) : 'num' }, [i]);
   }
