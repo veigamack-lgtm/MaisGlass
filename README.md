@@ -87,7 +87,7 @@ lucro = B18 − custo total      markup = lucro ÷ custo s/ imposto
 ## Calculadora 2 — Revenda de importado comprado no Brasil
 
 Tela inicial escolhe a operação: (1) importação direta, (2) revenda de
-importado, (3) indústria nacional (ainda não montada). A calculadora 2 segue
+importado, (3) indústria nacional. A calculadora 2 segue
 o memorial da contadora, para empresa **lucro real** e **indústria
 (beneficiamento de vidro)**, comprando de fornecedor com IE e vendendo a
 cliente (normalmente não contribuinte) em outra UF:
@@ -139,6 +139,24 @@ parecer técnico externo, set/2026; teste `Simulação §4` em `test/test.js`).
 Pendências com a contadoria: FCP das demais UFs; alíquotas internas 2026 (PR,
 RS, MT); exclusão do DIFAL da base de PIS/COFINS (adotada, conforme STJ Tema
 1.372) e do FCP (não adotada); FCI e conteúdo de importação do produto beneficiado.
+
+## Calculadora 3 — Indústria nacional
+
+Mesma operação e mesmo motor da calculadora 2 (`calcularRevenda`), só que o
+vidro é fabricado no Brasil: compra de indústria com IE em SP, beneficiamento
+em MG e venda para cliente não contribuinte (construtora) no RJ. O que muda é a
+alíquota interestadual, que é a cheia: **12%** na entrada (SP → MG, crédito) e
+**12%** na saída (MG → RJ), logo DIFAL RJ = 20% − 12% = **8%** (+ FCP 2%). Não
+depende da Resolução 13/2012 nem de FCI. Para fornecedor ou cliente no
+N/NE/CO/ES a interestadual é 7% — ajuste nos campos "ICMS destacado na entrada"
+e "ICMS interestadual da saída". IPI do fornecedor nacional conforme a TIPI do
+NCM (padrão 6,5%, confirmar na NF).
+
+A aba é montada em `app.js` (`montarAbaNacional`) clonando a aba de revenda
+com ids `n-`/`no-`/`nviz`; os padrões estão em `defaults.js →
+DEFAULT_INPUTS_NACIONAL`. Exemplo: compra 100 mil (12%) → crédito 12.000;
+venda 200 mil fechado → débito 24.000, a recolher 12.000 (MG), DIFAL 16.000 +
+FCP 4.000 (RJ) = carga total 32.000 (contra 40.000 no importado a 4%).
 
 ## Validação
 

@@ -176,5 +176,14 @@
     parcelas: 3
   };
 
-  root.GM_DEFAULTS = { config: DEFAULT_CONFIG, inputs: DEFAULT_INPUTS, inputsRevenda: DEFAULT_INPUTS_REVENDA };
+  /* Entradas padrão da calculadora 3 — vidro de indústria nacional (SP → MG beneficia → RJ).
+   * Mesmo motor da revenda; muda a alíquota interestadual: 12% na entrada (SP→MG) e 12% na saída (MG→RJ),
+   * DIFAL RJ = 20% − 12% = 8% (+ FCP 2%). Sem Res. SF 13/2012, sem FCI. */
+  var DEFAULT_INPUTS_NACIONAL = Object.assign({}, DEFAULT_INPUTS_REVENDA, {
+    precoCompra: 70,
+    icmsCompra: 0.12,
+    icmsSaida: 0.12
+  });
+
+  root.GM_DEFAULTS = { config: DEFAULT_CONFIG, inputs: DEFAULT_INPUTS, inputsRevenda: DEFAULT_INPUTS_REVENDA, inputsNacional: DEFAULT_INPUTS_NACIONAL };
 })(typeof module !== 'undefined' ? module.exports : window);

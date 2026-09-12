@@ -164,7 +164,7 @@
     document.querySelectorAll('nav.tabs button').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === nome); });
     ABAS.forEach(function (a) { $('tab-' + a).classList.toggle('hidden', a !== nome); });
     try { sessionStorage.setItem('glassmais.aba', nome); } catch (e) { /* ignore */ }
-    if (nome === 'revenda') recalcularRevenda();
+    if (OPS[nome]) recalcularRevenda(OPS[nome]);
     if (nome === 'config') { if (!draft) draft = clone(config); renderConfig(); }
   }
 
@@ -183,132 +183,158 @@
     if (atualU && config.difal[atualU]) selU.value = atualU;
 
     // revenda
-    ['r-fornecedorUF', 'r-clienteUF'].forEach(function (id) {
+    ['r-fornecedorUF', 'r-clienteUF', 'n-fornecedorUF', 'n-clienteUF'].forEach(function (id) {
       var sel = $(id); var atual = sel.value; sel.innerHTML = '';
       Object.keys(config.difal).sort().forEach(function (uf) { sel.appendChild(el('option', { value: uf, text: uf })); });
       if (atual && config.difal[atual]) sel.value = atual;
     });
-    var selRB = $('r-bandeira'); var atualRB = selRB.value; selRB.innerHTML = '';
-    Object.keys(config.cartao.mdr).forEach(function (b) { selRB.appendChild(el('option', { value: b, text: b })); });
-    if (atualRB && config.cartao.mdr[atualRB]) selRB.value = atualRB;
+    ['r-bandeira', 'n-bandeira'].forEach(function (id) {
+      var selRB = $(id); var atualRB = selRB.value; selRB.innerHTML = '';
+      Object.keys(config.cartao.mdr).forEach(function (b) { selRB.appendChild(el('option', { value: b, text: b })); });
+      if (atualRB && config.cartao.mdr[atualRB]) selRB.value = atualRB;
+    });
+  }
+
+  /* ---------------- calculadoras 2 e 3: mesmo motor, prefixos de id diferentes ----------------
+   * revenda  = importado comprado no Brasil (ICMS 4% entrada/saída, FCI)
+   * nacional = vidro de indústria nacional (ICMS interestadual cheio: 12% SP→MG e MG→RJ) */
+  var OPS = {
+    revenda:  { nome: 'revenda',  i: 'r-', o: 'ro-', v: 'rviz', tab: 'tab-revenda',  origem: 'importado', defaults: function () { return DEF.inputsRevenda; } },
+    nacional: { nome: 'nacional', i: 'n-', o: 'no-', v: 'nviz', tab: 'tab-nacional', origem: 'nacional',  defaults: function () { return DEF.inputsNacional; } }
+  };
+  var PFX = OPS.revenda;
+  function recalcularOperacoes() { Object.keys(OPS).forEach(function (k) { recalcularRevenda(OPS[k]); }); }
+  /* Monta a aba "Indústria nacional" clonando a da revenda (mesmos campos, ids com prefixo n-/no-/nviz) */
+  function montarAbaNacional() {
+    var html = $('tab-revenda').innerHTML.replace(/id="r-/g, 'id="n-').replace(/id="ro-/g, 'id="no-').replace(/id="rviz-/g, 'id="nviz-');
+    $('tab-nacional').innerHTML = html;
+    function hint(id, texto) { var f = $(id).closest('.field'); var sm = f && f.querySelector('small'); if (sm) sm.textContent = texto; }
+    var h2 = $('tab-nacional').querySelector('.card.purple h2'); if (h2) h2.textContent = 'Entrada — compra da indústria nacional (com IE)';
+    hint('n-icmsCompra', '12% = vidro nacional vindo de SP/Sul/Sudeste; 7% se o fornecedor for do N/NE/CO/ES');
+    hint('n-icmsSaida', '12% = MG → RJ (nacional: alíquota interestadual cheia; 7% para N/NE/CO/ES). Não depende de FCI');
+    hint('n-ipi', 'Conforme TIPI do NCM do fornecedor — confirmar na NF');
   }
 
   /* ---------------- calculadora 2: revenda ---------------- */
-  function lerEntradasRevenda() {
+  function lerEntradasRevenda(op) {
+    if (op) PFX = op;
     var pctOrZero = function (id) { return $(id).value === '' ? 0 : Number($(id).value) / 100; };
     return {
-      fornecedorUF: $('r-fornecedorUF').value,
-      precoCompra: $('r-precoCompra').value,
-      quantidade: $('r-quantidade').value,
-      perda: pctOrZero('r-perda'),
-      icmsCompra: pctOrZero('r-icmsCompra'),
-      ipi: pctOrZero('r-ipi'),
-      ipiCredito: $('r-ipiCredito').value === 'sim',
-      modo: $('r-modo').value,
-      difalIncluso: $('r-difalIncluso').value === 'dentro',
-      contribuinte: $('r-contribuinte').value === 'sim',
-      clienteUF: $('r-clienteUF').value,
-      precoVenda: $('r-precoVenda').value,
-      ipiVenda: pctOrZero('r-ipiVenda'),
-      icmsSaida: pctOrZero('r-icmsSaida'),
-      frete: $('r-frete').value === '' ? 0 : $('r-frete').value,
-      pagamento: $('r-pagamento').value,
-      bandeira: $('r-bandeira').value,
-      parcelas: $('r-parcelas').value
+      fornecedorUF: $(PFX.i + 'fornecedorUF').value,
+      precoCompra: $(PFX.i + 'precoCompra').value,
+      quantidade: $(PFX.i + 'quantidade').value,
+      perda: pctOrZero(PFX.i + 'perda'),
+      icmsCompra: pctOrZero(PFX.i + 'icmsCompra'),
+      ipi: pctOrZero(PFX.i + 'ipi'),
+      ipiCredito: $(PFX.i + 'ipiCredito').value === 'sim',
+      modo: $(PFX.i + 'modo').value,
+      difalIncluso: $(PFX.i + 'difalIncluso').value === 'dentro',
+      contribuinte: $(PFX.i + 'contribuinte').value === 'sim',
+      clienteUF: $(PFX.i + 'clienteUF').value,
+      precoVenda: $(PFX.i + 'precoVenda').value,
+      ipiVenda: pctOrZero(PFX.i + 'ipiVenda'),
+      icmsSaida: pctOrZero(PFX.i + 'icmsSaida'),
+      frete: $(PFX.i + 'frete').value === '' ? 0 : $(PFX.i + 'frete').value,
+      pagamento: $(PFX.i + 'pagamento').value,
+      bandeira: $(PFX.i + 'bandeira').value,
+      parcelas: $(PFX.i + 'parcelas').value
     };
   }
 
-  function aplicarEntradasPadraoRevenda() {
-    var d = DEF.inputsRevenda, rv = config.revenda || {};
-    $('r-fornecedorUF').value = d.fornecedorUF;
-    $('r-precoCompra').value = d.precoCompra;
-    $('r-quantidade').value = d.quantidade;
-    $('r-perda').value = d.perda * 100;
-    $('r-icmsCompra').value = Math.round((rv.icmsCompraImportado !== undefined ? rv.icmsCompraImportado : d.icmsCompra) * 1e4) / 100;
-    $('r-ipi').value = Math.round((rv.ipiCompra !== undefined ? rv.ipiCompra : d.ipi) * 1e4) / 100;
-    $('r-modo').value = d.modo;
-    $('r-ipiCredito').value = d.ipiCredito ? 'sim' : 'nao';
-    $('r-difalIncluso').value = d.difalIncluso ? 'dentro' : 'fora';
-    $('r-contribuinte').value = d.contribuinte ? 'sim' : 'nao';
-    $('r-clienteUF').value = d.clienteUF;
-    $('r-precoVenda').value = d.precoVenda;
-    $('r-ipiVenda').value = d.ipiVenda * 100;
-    $('r-icmsSaida').value = Math.round((config.interestadual !== undefined ? config.interestadual : d.icmsSaida) * 1e4) / 100;
-    $('r-frete').value = d.frete;
-    $('r-pagamento').value = d.pagamento;
-    $('r-bandeira').value = d.bandeira;
-    $('r-parcelas').value = d.parcelas;
+  function aplicarEntradasPadraoRevenda(op) {
+    if (op) PFX = op;
+    var d = PFX.defaults(), rv = config.revenda || {}, imp = PFX.origem === 'importado';
+    $(PFX.i + 'fornecedorUF').value = d.fornecedorUF;
+    $(PFX.i + 'precoCompra').value = d.precoCompra;
+    $(PFX.i + 'quantidade').value = d.quantidade;
+    $(PFX.i + 'perda').value = d.perda * 100;
+    $(PFX.i + 'icmsCompra').value = Math.round((imp && rv.icmsCompraImportado !== undefined ? rv.icmsCompraImportado : d.icmsCompra) * 1e4) / 100;
+    $(PFX.i + 'ipi').value = Math.round((rv.ipiCompra !== undefined ? rv.ipiCompra : d.ipi) * 1e4) / 100;
+    $(PFX.i + 'modo').value = d.modo;
+    $(PFX.i + 'ipiCredito').value = d.ipiCredito ? 'sim' : 'nao';
+    $(PFX.i + 'difalIncluso').value = d.difalIncluso ? 'dentro' : 'fora';
+    $(PFX.i + 'contribuinte').value = d.contribuinte ? 'sim' : 'nao';
+    $(PFX.i + 'clienteUF').value = d.clienteUF;
+    $(PFX.i + 'precoVenda').value = d.precoVenda;
+    $(PFX.i + 'ipiVenda').value = d.ipiVenda * 100;
+    $(PFX.i + 'icmsSaida').value = Math.round((imp && config.interestadual !== undefined ? config.interestadual : d.icmsSaida) * 1e4) / 100;
+    $(PFX.i + 'frete').value = d.frete;
+    $(PFX.i + 'pagamento').value = d.pagamento;
+    $(PFX.i + 'bandeira').value = d.bandeira;
+    $(PFX.i + 'parcelas').value = d.parcelas;
   }
 
-  function aplicarModoRevenda() {
+  function aplicarModoRevenda(op) {
+    if (op) PFX = op;
     // Coerência fiscal: revenda pura → IPI da compra é custo e não há IPI na saída;
     // beneficiamento → crédito do IPI e IPI destacado na saída (padrão da classe, 6,5%).
-    if ($('r-modo').value === 'beneficiamento') { $('r-ipiCredito').value = 'sim'; $('r-ipiVenda').value = 6.5; }
-    else { $('r-ipiCredito').value = 'nao'; $('r-ipiVenda').value = 0; }
+    if ($(PFX.i + 'modo').value === 'beneficiamento') { $(PFX.i + 'ipiCredito').value = 'sim'; $(PFX.i + 'ipiVenda').value = 6.5; }
+    else { $(PFX.i + 'ipiCredito').value = 'nao'; $(PFX.i + 'ipiVenda').value = 0; }
   }
-  function recalcularRevenda() {
+  function recalcularRevenda(op) {
+    if (op) PFX = op;
     var inp = lerEntradasRevenda();
     var parcelado = inp.pagamento === 'Parcelado';
-    $('r-bandeira').disabled = !parcelado;
-    $('r-parcelas').disabled = !parcelado;
+    $(PFX.i + 'bandeira').disabled = !parcelado;
+    $(PFX.i + 'parcelas').disabled = !parcelado;
     var r;
     try { r = CALC.calcularRevenda(config, inp); }
     catch (e) { limparResultadosRevenda(e.message); return; }
     var empresaUF = (config.revenda && config.revenda.empresaUF) || 'MG';
 
-    $('ro-precoFinal').textContent = brl(r.precoFinal);
-    $('ro-precoM2').textContent = brl(r.precoVendaM2) + ' por m² · ' + numFmt(Number(inp.quantidade), 2) + ' m²';
-    $('ro-creditoICMS').textContent = brl(r.creditoICMS);
-    $('ro-icmsDebitoLabel').textContent = '(−) Débito de ICMS na saída: ' + pct(r.icmsVendaAliq, 1) + ' × ' + brl(r.baseICMS) + (r.contribuinte ? ' (IPI fora da base)' : ' (IPI na base)');
-    $('ro-icmsDebito').textContent = brl(r.icmsDebito);
-    $('ro-icmsInternoLabel').textContent = '= ICMS a recolher em ' + empresaUF + ' (efeito nesta venda)';
-    $('ro-icmsInterno').textContent = brl(r.icmsARecolher);
-    $('ro-saldoCredorICMS').textContent = r.saldoCredorICMS > 0 ? brl(r.saldoCredorICMS) : '—';
-    $('ro-difalLabel').textContent = 'DIFAL ' + (r.difalPct > 0 ? pct(r.difalPct, 1) + ' — partilha devida a ' + inp.clienteUF : '— não se aplica');
-    $('ro-difal').textContent = brl(r.difal);
-    $('ro-fcpLabel').textContent = 'FCP ' + (r.fcpPct > 0 ? pct(r.fcpPct, 1) + ' — devido a ' + inp.clienteUF : '— não se aplica');
-    $('ro-fcp').textContent = brl(r.fcp);
-    $('ro-icmsTotal').textContent = brl(r.icmsTotal);
-    $('ro-creditoIPI').textContent = brl(r.creditoIPI);
+    $(PFX.o + 'precoFinal').textContent = brl(r.precoFinal);
+    $(PFX.o + 'precoM2').textContent = brl(r.precoVendaM2) + ' por m² · ' + numFmt(Number(inp.quantidade), 2) + ' m²';
+    $(PFX.o + 'creditoICMS').textContent = brl(r.creditoICMS);
+    $(PFX.o + 'icmsDebitoLabel').textContent = '(−) Débito de ICMS na saída: ' + pct(r.icmsVendaAliq, 1) + ' × ' + brl(r.baseICMS) + (r.contribuinte ? ' (IPI fora da base)' : ' (IPI na base)');
+    $(PFX.o + 'icmsDebito').textContent = brl(r.icmsDebito);
+    $(PFX.o + 'icmsInternoLabel').textContent = '= ICMS a recolher em ' + empresaUF + ' (efeito nesta venda)';
+    $(PFX.o + 'icmsInterno').textContent = brl(r.icmsARecolher);
+    $(PFX.o + 'saldoCredorICMS').textContent = r.saldoCredorICMS > 0 ? brl(r.saldoCredorICMS) : '—';
+    $(PFX.o + 'difalLabel').textContent = 'DIFAL ' + (r.difalPct > 0 ? pct(r.difalPct, 1) + ' — partilha devida a ' + inp.clienteUF : '— não se aplica');
+    $(PFX.o + 'difal').textContent = brl(r.difal);
+    $(PFX.o + 'fcpLabel').textContent = 'FCP ' + (r.fcpPct > 0 ? pct(r.fcpPct, 1) + ' — devido a ' + inp.clienteUF : '— não se aplica');
+    $(PFX.o + 'fcp').textContent = brl(r.fcp);
+    $(PFX.o + 'icmsTotal').textContent = brl(r.icmsTotal);
+    $(PFX.o + 'creditoIPI').textContent = brl(r.creditoIPI);
     var dR = r.dre.real, dP = r.dre.presumido;
-    $('ro-liqReal').textContent = brl(dR.lucroLiquido);
-    $('ro-liqRealSub').textContent = pct(dR.margemSobreValorPago, 1) + ' do valor pago · IRPJ/CSLL ' + brl(dR.irpjCsll);
-    $('ro-liqPres').textContent = brl(dP.lucroLiquido);
+    $(PFX.o + 'liqReal').textContent = brl(dR.lucroLiquido);
+    $(PFX.o + 'liqRealSub').textContent = pct(dR.margemSobreValorPago, 1) + ' do valor pago · IRPJ/CSLL ' + brl(dR.irpjCsll);
+    $(PFX.o + 'liqPres').textContent = brl(dP.lucroLiquido);
     var delta = dP.lucroLiquido - dR.lucroLiquido;
-    $('ro-liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(dP.irpjCsll);
+    $(PFX.o + 'liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(dP.irpjCsll);
     renderDre(dR, dP);
 
-    $('ro-credPisCofins').textContent = brl(r.creditoPIS + r.creditoCOFINS);
-    $('ro-debPisCofins').textContent = brl(r.pisVenda + r.cofinsVenda);
-    $('ro-pisCofinsDevidoLabel').textContent = r.saldoCredorPisCofins > 0 ? '= Saldo credor de PIS/COFINS' : '= PIS/COFINS a recolher';
-    $('ro-pisCofinsDevido').textContent = brl(r.saldoCredorPisCofins > 0 ? r.saldoCredorPisCofins : r.pisCofinsARecolher);
-    $('ro-basePisCofins').textContent = brl(r.basePisCofinsVenda);
+    $(PFX.o + 'credPisCofins').textContent = brl(r.creditoPIS + r.creditoCOFINS);
+    $(PFX.o + 'debPisCofins').textContent = brl(r.pisVenda + r.cofinsVenda);
+    $(PFX.o + 'pisCofinsDevidoLabel').textContent = r.saldoCredorPisCofins > 0 ? '= Saldo credor de PIS/COFINS' : '= PIS/COFINS a recolher';
+    $(PFX.o + 'pisCofinsDevido').textContent = brl(r.saldoCredorPisCofins > 0 ? r.saldoCredorPisCofins : r.pisCofinsARecolher);
+    $(PFX.o + 'basePisCofins').textContent = brl(r.basePisCofinsVenda);
 
-    $('ro-compraProdutos').textContent = brl(r.compraProdutos);
-    $('ro-ipiCompra').textContent = brl(r.ipiCompra);
-    $('ro-totalNF').textContent = brl(r.totalNFCompra);
-    $('ro-creditos').textContent = '− ' + brl(r.creditoICMS + r.creditoIPI + r.creditoPIS + r.creditoCOFINS);
-    $('ro-custoLiquido').textContent = brl(r.custoLiquidoCompra);
-    $('ro-custoLiquidoM2').textContent = brl(r.custoLiquidoM2);
+    $(PFX.o + 'compraProdutos').textContent = brl(r.compraProdutos);
+    $(PFX.o + 'ipiCompra').textContent = brl(r.ipiCompra);
+    $(PFX.o + 'totalNF').textContent = brl(r.totalNFCompra);
+    $(PFX.o + 'creditos').textContent = '− ' + brl(r.creditoICMS + r.creditoIPI + r.creditoPIS + r.creditoCOFINS);
+    $(PFX.o + 'custoLiquido').textContent = brl(r.custoLiquidoCompra);
+    $(PFX.o + 'custoLiquidoM2').textContent = brl(r.custoLiquidoM2);
 
-    $('ro-taxaCartao').textContent = pct(r.taxaCartao) + ' · ' + brl(r.valorTaxaCartao);
-    $('ro-precoComTaxa').textContent = brl(r.precoComTaxa);
-    $('ro-ipiVenda').textContent = brl(r.ipiVenda);
-    $('ro-ipiDevidoLabel').textContent = r.saldoCredorIPI > 0 ? '= Saldo credor de IPI' : '= IPI a recolher';
-    $('ro-ipiDevido').textContent = brl(r.saldoCredorIPI > 0 ? r.saldoCredorIPI : r.ipiARecolher);
-    $('ro-valorOperacao').textContent = brl(r.valorOperacao) + (r.difalIncluso ? ' (preço fechado)' : ' (com gross-up de IPI/DIFAL/FCP)');
-    $('ro-difalFcp').textContent = brl(r.difal + r.fcp) + (r.difalIncluso ? ' (dentro do preço)' : ' (cobrados em acréscimo)');
-    $('ro-frete').textContent = brl(r.frete);
-    $('ro-custoTotal').textContent = brl(r.custoTotal);
-    $('ro-lucro').textContent = brl(r.lucro);
-    $('ro-row-lucro').classList.toggle('neg', r.lucro < 0);
-    $('ro-markup').textContent = pct(r.markup, 1);
+    $(PFX.o + 'taxaCartao').textContent = pct(r.taxaCartao) + ' · ' + brl(r.valorTaxaCartao);
+    $(PFX.o + 'precoComTaxa').textContent = brl(r.precoComTaxa);
+    $(PFX.o + 'ipiVenda').textContent = brl(r.ipiVenda);
+    $(PFX.o + 'ipiDevidoLabel').textContent = r.saldoCredorIPI > 0 ? '= Saldo credor de IPI' : '= IPI a recolher';
+    $(PFX.o + 'ipiDevido').textContent = brl(r.saldoCredorIPI > 0 ? r.saldoCredorIPI : r.ipiARecolher);
+    $(PFX.o + 'valorOperacao').textContent = brl(r.valorOperacao) + (r.difalIncluso ? ' (preço fechado)' : ' (com gross-up de IPI/DIFAL/FCP)');
+    $(PFX.o + 'difalFcp').textContent = brl(r.difal + r.fcp) + (r.difalIncluso ? ' (dentro do preço)' : ' (cobrados em acréscimo)');
+    $(PFX.o + 'frete').textContent = brl(r.frete);
+    $(PFX.o + 'custoTotal').textContent = brl(r.custoTotal);
+    $(PFX.o + 'lucro').textContent = brl(r.lucro);
+    $(PFX.o + 'row-lucro').classList.toggle('neg', r.lucro < 0);
+    $(PFX.o + 'markup').textContent = pct(r.markup, 1);
 
-    $('ro-notas').innerHTML = '';
-    r.notas.forEach(function (n) { $('ro-notas').appendChild(el('p', { text: n })); });
+    $(PFX.o + 'notas').innerHTML = '';
+    r.notas.forEach(function (n) { $(PFX.o + 'notas').appendChild(el('p', { text: n })); });
 
     var impostos = r.icmsInternoDevido + r.pisDevido + r.cofinsDevido + r.ipiDevido;
-    renderGraficoGenerico('rviz', r.precoFinal, r.custoTotal, r.lucro, [
+    renderGraficoGenerico(PFX.v, r.precoFinal, r.custoTotal, r.lucro, [
       { nome: 'Mercadoria (NF de entrada)', sub: 'produtos + IPI, antes dos créditos', valor: r.totalNFCompra },
       { nome: 'Tributos a recolher (líquidos de créditos)', sub: 'ICMS ' + brl(r.icmsInternoDevido) + ' · PIS/COFINS ' + brl(r.pisDevido + r.cofinsDevido) + ' · IPI ' + brl(r.ipiDevido), valor: impostos },
       { nome: 'DIFAL + FCP', sub: r.difalPct + r.fcpPct > 0 ? pct(r.difalPct + r.fcpPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal + r.fcp },
@@ -326,7 +352,7 @@
         el('td', { text: brl(vb), class: vb < 0 ? 'neg' : '' })]);
       return tr;
     }
-    var t = $('ro-dre'); t.innerHTML = '';
+    var t = $(PFX.o + 'dre'); t.innerHTML = '';
     t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: 'DRE da operação (estimativa gerencial)' }), el('th', { text: 'Lucro real (atual)' }), el('th', { text: 'Lucro presumido (simulação)' })])]));
     var tb = el('tbody');
     tb.appendChild(row('Receita bruta (valor pago pelo cliente)', 'receitaBruta'));
@@ -352,17 +378,17 @@
   }
 
   function limparResultadosRevenda(msg) {
-    document.querySelectorAll('#tab-revenda .kv .v, #tab-revenda .result-hero .value').forEach(function (n) { n.textContent = '—'; });
-    $('ro-precoM2').textContent = '';
-    $('ro-row-lucro').classList.remove('neg');
-    $('ro-notas').innerHTML = '';
-    $('ro-notas').appendChild(el('p', { class: 'warn', text: 'Não foi possível calcular: ' + msg }));
-    $('rviz-bar').innerHTML = ''; $('rviz-legend').innerHTML = '';
-    $('rviz-sub').textContent = 'Corrija as entradas para ver a composição.';
-    $('rviz-prejuizo').classList.add('hidden');
-    $('ro-dre').innerHTML = '';
-    ['ro-liqReal', 'ro-liqPres'].forEach(function (id) { $(id).textContent = '—'; });
-    ['ro-liqRealSub', 'ro-liqPresSub'].forEach(function (id) { $(id).textContent = ''; });
+    document.querySelectorAll('#' + PFX.tab + ' .kv .v, #' + PFX.tab + ' .result-hero .value').forEach(function (n) { n.textContent = '—'; });
+    $(PFX.o + 'precoM2').textContent = '';
+    $(PFX.o + 'row-lucro').classList.remove('neg');
+    $(PFX.o + 'notas').innerHTML = '';
+    $(PFX.o + 'notas').appendChild(el('p', { class: 'warn', text: 'Não foi possível calcular: ' + msg }));
+    $(PFX.v + '-bar').innerHTML = ''; $(PFX.v + '-legend').innerHTML = '';
+    $(PFX.v + '-sub').textContent = 'Corrija as entradas para ver a composição.';
+    $(PFX.v + '-prejuizo').classList.add('hidden');
+    $(PFX.o + 'dre').innerHTML = '';
+    ['liqReal', 'liqPres'].forEach(function (id) { $(PFX.o + id).textContent = '—'; });
+    ['liqRealSub', 'liqPresSub'].forEach(function (id) { $(PFX.o + id).textContent = ''; });
   }
 
   function lerEntradas() {
@@ -655,7 +681,7 @@
     status(salvarConfig(config) ? 'Configurações salvas.' : 'Salvo só nesta sessão (navegador sem armazenamento).', 'ok');
     preencherListas();
     recalcular();
-    recalcularRevenda();
+    recalcularOperacoes();
   }
 
   function autoSalvar() {
@@ -667,7 +693,7 @@
     var ok = salvarConfig(config);
     preencherListas();
     recalcular();
-    recalcularRevenda();
+    recalcularOperacoes();
     var hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     status(ok ? 'Salvo automaticamente às ' + hora + '.' : 'Aplicado só nesta sessão (navegador sem armazenamento).', 'ok');
   }
@@ -707,18 +733,23 @@
   function iniciarApp() {
     if (iniciado) return; iniciado = true;
     config = carregarConfig();
+    montarAbaNacional();
     preencherListas();
     aplicarEntradasPadrao();
     recalcular();
 
-    aplicarEntradasPadraoRevenda();
-    recalcularRevenda();
+    Object.keys(OPS).forEach(function (k) {
+      var op = OPS[k];
+      aplicarEntradasPadraoRevenda(op);
+      recalcularRevenda(op);
+      $(op.i + 'modo').addEventListener('change', function () { aplicarModoRevenda(op); recalcularRevenda(op); });
+      document.querySelectorAll('#' + op.tab + ' input, #' + op.tab + ' select').forEach(function (i) {
+        var f = function () { recalcularRevenda(op); };
+        i.addEventListener('input', f); i.addEventListener('change', f);
+      });
+    });
     document.querySelectorAll('#tab-calc input, #tab-calc select').forEach(function (i) {
       i.addEventListener('input', recalcular); i.addEventListener('change', recalcular);
-    });
-    $('r-modo').addEventListener('change', aplicarModoRevenda);
-    document.querySelectorAll('#tab-revenda input, #tab-revenda select').forEach(function (i) {
-      i.addEventListener('input', recalcularRevenda); i.addEventListener('change', recalcularRevenda);
     });
     document.querySelectorAll('nav.tabs button').forEach(function (b) { b.addEventListener('click', function () { mostrarAba(b.getAttribute('data-tab')); }); });
     document.querySelectorAll('.home-card').forEach(function (c) { c.addEventListener('click', function () { mostrarAba(c.getAttribute('data-go')); }); });
