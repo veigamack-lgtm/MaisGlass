@@ -104,11 +104,13 @@
       ipiCompra: 0.065,            // IPI destacado pelo importador (equiparado a industrial)
       ipiCredito: true,            // MaisGlass compra, beneficia e revende: toma crédito do IPI e destaca IPI na saída
       /* FCP (Fundo de Combate à Pobreza) cobrado no DIFAL para NÃO contribuinte, por UF do cliente.
-       * Só RJ preenchido (2%) conforme memorial da contadora; demais em 0 — confirmar antes de usar. */
+       * Só RJ confirmado (2%, memorial da contadora). null = não confirmado: a calc 2 bloqueia a venda
+       * a não contribuinte nessa UF até alguém informar o valor em Configurações (0 se a UF não cobra). */
       fcp: {
-        AC: 0, AL: 0, AM: 0, AP: 0, BA: 0, CE: 0, DF: 0, ES: 0, GO: 0, MA: 0, MS: 0, MT: 0, MG: 0,
-        PA: 0, PB: 0, PE: 0, PI: 0, PR: 0, RJ: 0.02, RN: 0, RO: 0, RR: 0, RS: 0, SC: 0, SE: 0, SP: 0, TO: 0
-      }
+        AC: null, AL: null, AM: null, AP: null, BA: null, CE: null, DF: null, ES: null, GO: null, MA: null, MS: null, MT: null, MG: null,
+        PA: null, PB: null, PE: null, PI: null, PR: null, RJ: 0.02, RN: null, RO: null, RR: null, RS: null, SC: null, SE: null, SP: null, TO: null
+      },
+      fcpRevisado: true            // marca da migração: tabelas antigas (zeros automáticos) viram null ao carregar
     },
 
     /* --- Tributos sobre o resultado, para a DRE da revenda (calc 2) --- */
@@ -162,8 +164,9 @@
     ipi: 0.065,
     ipiCredito: true,
     ipiVenda: 0.065,        // MaisGlass beneficia e revende: IPI destacado na saída
+    icmsSaida: 0.04,        // alíquota interestadual da saída (4% = importado com conteúdo > 40% + FCI; 12%/7% se não mantiver)
     modo: 'beneficiamento', // 'revenda' (sem beneficiar: IPI da compra é custo, sem IPI na saída) | 'beneficiamento' (crédito de IPI e IPI na saída)
-    difalIncluso: false,    // false = DIFAL/FCP somados ao preço; true = preço fechado, DIFAL/FCP saem da margem
+    difalIncluso: true,     // true = preço fechado (o combinado é o total da NF); false = IPI/DIFAL/FCP cobrados em acréscimo com gross-up
     contribuinte: false,
     clienteUF: 'RJ',
     precoVenda: 150,        // R$/m²
