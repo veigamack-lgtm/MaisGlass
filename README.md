@@ -8,7 +8,7 @@ build, sem servidor: abre direto no navegador ou publica no GitHub Pages.
 
 | Arquivo | Função |
 |---|---|
-| `index.html` | Interface (login, aba Calculadora, aba Configurações). CSS embutido. |
+| `index.html` | Interface (login, Início, três calculadoras, Configurações). CSS embutido. |
 | `calc.js` | Motor de cálculo puro (sem DOM). Cada fórmula cita a célula da planilha de origem. |
 | `defaults.js` | Valores padrão: produtos, classes fiscais + NCM, despesas nacionais, entreposto, cartão, DIFAL. É o "Restaurar padrão". |
 | `app.js` | Liga interface ↔ motor; login; localStorage; exportar/importar JSON. |
@@ -48,6 +48,18 @@ confirma a hora). Fica em `localStorage` do navegador (chave
 computador não aparece sozinho no celular. Para levar para outro computador
 ou outra pessoa: **Exportar (JSON)** → **Importar (JSON)** → Salvar.
 "Restaurar padrão" volta aos valores de `defaults.js`.
+
+## Ajuda nos campos ("?")
+
+Todo campo editável das três calculadoras tem um botão **?** ao lado do
+rótulo. Ao clicar, abre uma caixa embaixo do campo com três partes: **O que
+é** (o significado do campo), **O que muda** (o efeito no cálculo ao
+alterar) e **Sugestão** (o que preencher na prática). Os textos ficam em
+`app.js → AJUDA` (chave = id do campo sem o prefixo `in-`/`r-`/`n-`); a aba
+Indústria nacional herda os textos da revenda e sobrescreve os que citam
+alíquotas (`AJUDA.nac`). Uma caixa aberta por vez; fecha clicando de novo,
+no ×, com Esc ou ao trocar de aba. Só texto — não altera valores nem
+recalcula.
 
 ## Lógica (resumo — detalhes nos comentários de `calc.js`)
 
@@ -111,10 +123,11 @@ Compra (NF do fornecedor, ICMS por dentro, IPI por fora)
 
 Venda
   subtotal        = preço/m² × m² + frete cobrado na NF (CIF integra a operação)
-  com cartão      = subtotal ÷ (1 − taxa)           (gross-up: o líquido recebido é o subtotal)
-  preço FECHADO   : valor da operação = com cartão; IPI por dentro = V − V ÷ (1 + IPI%)
-  preço POR FORA  : produtos = com cartão; IPI = produtos × IPI%;
-                    valor da operação = (produtos + IPI) ÷ (1 − DIFAL% − FCP%)   ← gross-up (base única)
+  preço FECHADO   : valor da operação V = subtotal ÷ (1 − taxa cartão); IPI por dentro = V − V ÷ (1 + IPI%)
+  preço POR FORA  : V = subtotal × (1 + IPI%) ÷ [(1 − DIFAL% − FCP%) − taxa × (1 + IPI%)]   ← gross-up simultâneo
+                    produtos = subtotal + V × taxa;  IPI = produtos × IPI%
+  taxa do cartão  = V × taxa (a operadora cobra sobre o total pago)
+  natureza        : "revenda sem industrializar" força crédito de IPI = 0 e IPI na saída = 0
   base do ICMS    = valor da operação (IPI incluso) p/ não contribuinte | produtos (IPI fora) p/ contribuinte
   débito ICMS     = base × alíquota da saída (4% editável; interna da empresa se venda interna)
   apuração ICMS   = débito − crédito → "a recolher" (≥ 0) e "saldo credor" (crédito a transportar) em linhas separadas
@@ -166,6 +179,28 @@ com ids `n-`/`no-`/`nviz`; os padrões estão em `defaults.js →
 DEFAULT_INPUTS_NACIONAL`. Exemplo: compra 100 mil (12%) → crédito 12.000;
 venda 200 mil fechado → débito 24.000, a recolher 12.000 (MG), DIFAL 16.000 +
 FCP 4.000 (RJ) = carga total 32.000 (contra 40.000 no importado a 4%).
+
+## Alíquota interestadual automática e migração da configuração
+
+`calc.js → aliquotaInterestadual(origem, destino, importado)` devolve 7%
+(origem Sul/Sudeste exceto ES → destino N/NE/CO/ES), 12% (demais), 4%
+(importado) ou `null` (operação interna). Nas calculadoras 2 e 3, ao trocar a
+UF do fornecedor ou do cliente, `app.js → sugerirAliquotas()` preenche os
+campos "ICMS destacado na entrada" e "ICMS interestadual da saída" e escreve o
+motivo abaixo do campo; o valor continua editável. A UF da empresa vem de
+Configurações e aparece no topo de cada aba.
+
+A coluna "DIFAL %" da tabela (usada só pela importação direta, B16 da
+planilha) é derivada da alíquota interna por `calc.js → derivarDifal()`:
+interna − 4%, e 0 na UF da empresa. Editar a alíquota interna de um estado
+atualiza as três calculadoras. Alíquotas internas 2026: PR 19,5%, RS 17%, MT
+17% (a planilha trazia 19/18/19).
+
+Configurações salvas com a tabela antiga são migradas ao carregar
+(`calc.js → migrarConfig`, `versao` 3): MG 11% → 18%, PR 19 → 19,5, RS 18 → 17,
+MT 19 → 17 — só quando o valor salvo ainda é o da planilha; um ajuste manual é
+preservado. A UF da empresa é fixa em MG (`EMPRESA_UF`), porque o regime
+especial da importação direta é de Minas.
 
 ## Validação
 

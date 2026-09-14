@@ -46,6 +46,15 @@
   .viz-tip { position: fixed; pointer-events: none; background: var(--ink); color: #fff; font-size: 13px; padding: 6px 10px; border-radius: 6px; z-index: 50; white-space: nowrap; }
   .field label { color: var(--ink); }
   .field small { display: block; color: var(--muted); font-size: 12px; }
+  /* botão "?" de ajuda nos campos editáveis das calculadoras */
+  .help { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-left: 6px; padding: 0; border-radius: 50%; border: 1px solid var(--gray); background: #fff; color: var(--muted); font: 700 11px/1 inherit; font-family: inherit; cursor: pointer; vertical-align: text-bottom; }
+  .help:hover, .help.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+  .help-box { grid-column: 1 / -1; position: relative; background: #fbfaff; border: 1px solid #d9c8f5; border-radius: 10px; padding: 10px 34px 10px 12px; margin: 2px 0 4px; font-size: 13px; line-height: 1.45; color: var(--ink); }
+  .help-box h4 { margin: 0 0 6px; font-size: 13.5px; }
+  .help-box p { margin: 0 0 6px; } .help-box p:last-child { margin-bottom: 0; }
+  .help-box p b { color: var(--purple-ink); }
+  .help-box .x { position: absolute; top: 4px; right: 6px; width: 24px; height: 24px; border: 0; background: transparent; font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); }
+  .help-box .x:hover { color: var(--ink); }
   input, select { width: 100%; font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
   input:disabled, select:disabled { background: #f1f3f6; color: #9aa3b2; }
   .purple input, .purple select { background: var(--purple); border-color: #d9c8f5; }
@@ -61,6 +70,7 @@
   .kv.total .v { color: var(--ink); }
   .kv.neg .v { color: var(--danger); }
   .chip { display: inline-block; background: var(--accent); color: var(--ink); border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 600; }
+  header .chip + .chip { margin-left: -6px; }
   .notes { background: #fbfcfe; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 14px; color: var(--muted); }
   .notes p { margin: 4px 0; }
   .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; align-items: center; }
@@ -156,7 +166,8 @@
 <div id="app" class="hidden">
   <header>
     <div class="logo"><svg class="logo-mark" viewBox="0 0 104 128" aria-hidden="true"><rect x="34" y="0" width="66" height="96" rx="8" fill="#8a8f98"/><rect x="4" y="16" width="66" height="96" rx="8" fill="#1c1f24"/><rect x="4" y="16" width="66" height="96" rx="8" fill="none" stroke="#f3f5f8" stroke-width="3"/><path d="M16 28 L32 28 L20 68 L12 68 Z" fill="#fff" opacity=".28"/><path d="M38 28 L44 28 L32 68 L26 68 Z" fill="#fff" opacity=".18"/></svg><span class="logo-word"><span class="m">Mais</span><span class="g">Glass</span></span><span class="logo-sub">Calculadora</span></div>
-    <span class="chip" id="hdrDolar"></span>
+    <span class="chip" id="hdrDolar" title="Dólar usado na importação (Configurações)"></span>
+    <span class="chip" id="hdrFrete" title="Frete internacional por container (Configurações)"></span>
     <span class="spacer"></span>
     <button id="logoutBtn">Sair</button>
   </header>
@@ -181,12 +192,12 @@
         <button class="home-card" data-go="revenda">
           <span class="num">2</span>
           <strong>Revenda de importado</strong>
-          <span>Compra de vidro importado de uma importadora ou distribuidor no Brasil (com IE) e venda para cliente não contribuinte. Crédito e débito de ICMS, DIFAL, FCP, PIS/COFINS.</span>
+          <span>Compra de vidro importado de importadora ou distribuidor em qualquer estado (com IE), beneficiamento e venda para cliente em qualquer UF. ICMS 4% (importado), DIFAL, FCP, IPI, PIS/COFINS — as alíquotas se ajustam à UF escolhida.</span>
         </button>
         <button class="home-card" data-go="nacional">
           <span class="num">3</span>
           <strong>Indústria nacional</strong>
-          <span>Compra de vidro fabricado no Brasil (indústria com IE em SP), beneficiamento em MG e venda para cliente não contribuinte. ICMS interestadual cheio (12%), DIFAL, FCP, IPI, PIS/COFINS.</span>
+          <span>Compra de vidro fabricado no Brasil (indústria com IE em qualquer estado), beneficiamento e venda para cliente em qualquer UF. ICMS interestadual 12% ou 7% conforme origem e destino, DIFAL, FCP, IPI, PIS/COFINS.</span>
         </button>
       </div>
     </section>
@@ -285,11 +296,12 @@
         <div>
           <div class="card purple">
             <h2>Entrada — compra do fornecedor (com IE)</h2>
+            <p class="hint" id="r-empresaInfo"></p>
             <div class="field"><label>UF de origem (fornecedor)</label><select id="r-fornecedorUF"></select></div>
             <div class="field"><label>Valor unitário na NF de entrada (R$/m²)<small>Valor dos produtos, ICMS incluso na base</small></label><input type="number" id="r-precoCompra" min="0" step="0.01"></div>
             <div class="field"><label>Quantidade (m²)</label><input type="number" id="r-quantidade" min="0" step="0.01"></div>
             <div class="field"><label>Perda no beneficiamento (%)<small>Aproveitamento de corte</small></label><input type="number" id="r-perda" min="0" step="0.5" value="0"></div>
-            <div class="field"><label>ICMS destacado na entrada (%)<small>4% = mercadoria importada, interestadual</small></label><input type="number" id="r-icmsCompra" min="0" step="0.5"></div>
+            <div class="field"><label>ICMS destacado na entrada (%)<small id="r-icmsCompraSug">Sugerido pela UF de origem; confira na NF do fornecedor</small></label><input type="number" id="r-icmsCompra" min="0" step="0.5"></div>
             <div class="field"><label>IPI destacado na entrada (%)</label><input type="number" id="r-ipi" min="0" step="0.5"></div>
             <div class="field"><label>Natureza da operação<small>Define o tratamento do IPI</small></label>
               <select id="r-modo"><option value="beneficiamento">Industrialização (beneficiamento) e venda</option><option value="revenda">Revenda sem industrializar</option></select></div>
@@ -304,7 +316,7 @@
             <div class="field"><label>Preço de venda (R$/m²)</label><input type="number" id="r-precoVenda" min="0" step="0.01"></div>
             <div class="field"><label>O preço combinado é…<small>Fechado: é o total da NF (IPI por dentro, DIFAL/FCP saem da margem). Por fora: é o valor dos produtos; IPI, DIFAL e FCP são cobrados em acréscimo com gross-up</small></label>
               <select id="r-difalIncluso"><option value="dentro">Preço fechado (total pago pelo cliente)</option><option value="fora">Valor dos produtos (IPI/DIFAL/FCP cobrados à parte)</option></select></div>
-            <div class="field"><label>ICMS interestadual da saída (%)<small>4% = importado com conteúdo &gt; 40% e FCI; se não mantiver, 12% (ou 7% p/ N/NE/CO/ES)</small></label><input type="number" id="r-icmsSaida" min="0" step="0.5"></div>
+            <div class="field"><label>ICMS interestadual da saída (%)<small id="r-icmsSaidaSug">Sugerido pela UF de destino</small></label><input type="number" id="r-icmsSaida" min="0" step="0.5"></div>
             <div class="field"><label>IPI destacado na saída (%)<small>Indústria destaca; débito compensa o crédito da entrada</small></label><input type="number" id="r-ipiVenda" min="0" step="0.5"></div>
             <div class="field"><label>Frete cobrado na NF (R$)<small>CIF: integra o valor da operação e as bases do ICMS/DIFAL/IPI. Se o cliente contrata o frete (FOB), deixe 0</small></label><input type="number" id="r-frete" min="0" step="0.01"></div>
             <div class="field"><label>Condição de pagamento</label><select id="r-pagamento"><option>À vista</option><option>Parcelado</option></select></div>
@@ -461,7 +473,7 @@
           <button class="btn small" id="cfgAddProduto" style="margin-top:8px">+ Adicionar produto</button>
 
           <h3>Revenda de importado (calculadora 2)</h3>
-          <div class="field"><label>UF da empresa (MaisGlass)</label><select data-cfg="revenda.empresaUF" data-type="text" id="cfg-empresaUF"></select></div>
+          <div class="field"><label>UF da empresa (MaisGlass)<small>Fixa: o regime especial da importação direta (14% interno / 1,5% fora) é de Minas</small></label><input type="text" value="MG" disabled></div>
           <div class="field"><label>ICMS padrão na compra de importado (%)</label><input type="number" step="0.5" data-cfg="revenda.icmsCompraImportado" data-type="pct"></div>
           <div class="field"><label>IPI padrão na compra (%)</label><input type="number" step="0.5" data-cfg="revenda.ipiCompra" data-type="pct"></div>
           <div class="field"><label>IPI gera crédito por padrão?</label><select data-cfg="revenda.ipiCredito" data-type="bool"><option value="1">Sim</option><option value="0">Não</option></select></div>
@@ -480,8 +492,8 @@
           </details>
 
           <details>
-            <summary>DIFAL por UF</summary>
-            <p class="hint">Alíquota interna de cada estado e DIFAL (interna − 4% interestadual). Vale só para cliente não contribuinte.</p>
+            <summary>Alíquotas internas por UF (e DIFAL da importação direta)</summary>
+            <p class="hint">"Alíquota interna" é a alíquota geral de ICMS de cada estado (MG 18%, RJ 20%, SP 18%, PR 19,5%…) — edite aqui quando um estado mudar. As calculadoras 2 e 3 usam essa coluna nas vendas internas e no DIFAL (interna − interestadual). A coluna "DIFAL %" é calculada automaticamente (interna − 4%; 0 na UF da empresa) e alimenta só a calculadora 1 (importação direta), cuja fórmula não foi alterada.</p>
             <div class="table-wrap" id="cfg-difal"></div>
           </details>
 

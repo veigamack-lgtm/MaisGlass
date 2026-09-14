@@ -8,7 +8,7 @@
   'use strict';
 
   var DEFAULT_CONFIG = {
-    versao: 1,
+    versao: 3,               // 2 = MG interna 18% (planilha trazia 11%); 3 = PR 19,5 / RS 17 / MT 17 e DIFAL derivado. app.js migra configs salvas
 
     /* --- Parâmetros gerais (Calculadora Chapa!F1 e VL 4+4!D7:D10) --- */
     dolar: 5.30,              // USD/BRL
@@ -127,15 +127,16 @@
     /* --- DIFAL por UF (aba DIFAL da planilha, mantida como está): [alíquota interna, DIFAL %].
      * DIFAL = interna − 4% (interestadual de importado); MG = 0 (venda interna).
      * Única correção: MG interna 18% (a planilha trazia 11%; a calc 1 não usa esse número, a calc 2 usa na venda interna).
-     * Obs.: tabelas 2026 apontam PR 19,5% e RS 17% — ajustar em Configurações se a contadora confirmar. --- */
+     * Set/2026: alíquotas internas atualizadas para PR 19,5%, RS 17% e MT 17% (a planilha trazia 19/18/19).
+     * A coluna DIFAL é derivada (interna − 4%; 0 na UF da empresa) por calc.js → derivarDifal(). --- */
     interestadual: 0.04,
     difal: {
       AC: [0.19, 0.15],  AL: [0.19, 0.15],  AM: [0.20, 0.16],  AP: [0.18, 0.14],
       BA: [0.205, 0.165], CE: [0.20, 0.16], DF: [0.20, 0.16],  ES: [0.17, 0.13],
-      GO: [0.19, 0.15],  MA: [0.23, 0.19],  MS: [0.17, 0.13],  MT: [0.19, 0.15],
+      GO: [0.19, 0.15],  MA: [0.23, 0.19],  MS: [0.17, 0.13],  MT: [0.17, 0.13],
       MG: [0.18, 0],     PA: [0.19, 0.15],  PB: [0.20, 0.16],  PE: [0.205, 0.165],
-      PI: [0.225, 0.185], PR: [0.19, 0.15], RJ: [0.20, 0.16],  RN: [0.20, 0.16],
-      RO: [0.195, 0.155], RR: [0.20, 0.16], RS: [0.18, 0.14],  SC: [0.17, 0.13],
+      PI: [0.225, 0.185], PR: [0.195, 0.155], RJ: [0.20, 0.16],  RN: [0.20, 0.16],
+      RO: [0.195, 0.155], RR: [0.20, 0.16], RS: [0.17, 0.13],  SC: [0.17, 0.13],
       SE: [0.19, 0.15],  SP: [0.18, 0.14],  TO: [0.20, 0.16]
     }
   };

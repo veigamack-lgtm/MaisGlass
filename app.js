@@ -91,26 +91,7 @@
   /* ---------------- persistência ---------------- */
   function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
   /* Completa chaves ausentes com o padrão (só onde o tipo bate) e devolve uma cópia. */
-  function migrar(cfg) {
-    if (!isObj(cfg)) throw new Error('Configuração deve ser um objeto JSON.');
-    var out = clone(cfg);
-    function merge(dst, src) {
-      Object.keys(src).forEach(function (k) {
-        if (dst[k] === undefined) dst[k] = clone(src[k]);
-        else if (isObj(src[k]) && isObj(dst[k])) merge(dst[k], src[k]);
-      });
-    }
-    var fcpAntigo = isObj(out.revenda) && isObj(out.revenda.fcp) && !out.revenda.fcpRevisado;
-    merge(out, DEF.config);
-    // Migração: tabelas FCP antigas vinham com 0 automático em todas as UFs; agora "não confirmado" é null e bloqueia a calc 2
-    if (fcpAntigo) {
-      Object.keys(out.revenda.fcp).forEach(function (uf) {
-        if (out.revenda.fcp[uf] === 0 && DEF.config.revenda.fcp[uf] === null) out.revenda.fcp[uf] = null;
-      });
-      out.revenda.fcpRevisado = true;
-    }
-    return out;
-  }
+  function migrar(cfg) { return CALC.migrarConfig(cfg, DEF.config); }   // ver calc.js → migrarConfig (v2/v3, FCP, empresa MG, DIFAL derivado)
   /* Migra + valida; lança Error com a lista de problemas. */
   function normalizarConfig(cfg) {
     var c = migrar(cfg);
@@ -121,7 +102,11 @@
   function carregarConfig() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return normalizarConfig(JSON.parse(raw));
+      if (raw) {
+        var salvo = JSON.parse(raw), c = normalizarConfig(salvo);
+        if (JSON.stringify(salvo) !== JSON.stringify(c)) salvarConfig(c);   // grava migrações (v2, FCP) sem esperar uma edição
+        return c;
+      }
     } catch (e) { console.warn('Config salva inválida; usando padrão.', e); }
     return clone(DEF.config);
   }
@@ -161,11 +146,18 @@
     if (ABAS.indexOf(nome) < 0) nome = 'home';
     if (abaAtual === 'config' && nome !== 'config' && draft) lerCamposSimples(); // guarda o que foi digitado
     abaAtual = nome;
+    fecharAjuda();
     document.querySelectorAll('nav.tabs button').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === nome); });
     ABAS.forEach(function (a) { $('tab-' + a).classList.toggle('hidden', a !== nome); });
     try { sessionStorage.setItem('glassmais.aba', nome); } catch (e) { /* ignore */ }
     if (OPS[nome]) recalcularRevenda(OPS[nome]);
     if (nome === 'config') { if (!draft) draft = clone(config); renderConfig(); }
+  }
+
+  /* Cabeçalho: dólar e frete internacional em uso (para o usuário não esquecer o frete na conta) */
+  function atualizarCabecalho() {
+    $('hdrDolar').textContent = 'Dólar ' + numFmt(config.dolar, 2);
+    $('hdrFrete').textContent = 'Frete US$ ' + numFmt(config.freteInternacionalUSD, 0) + '/container';
   }
 
   /* ---------------- aba calculadora ---------------- */
@@ -203,16 +195,253 @@
     nacional: { nome: 'nacional', i: 'n-', o: 'no-', v: 'nviz', tab: 'tab-nacional', origem: 'nacional',  defaults: function () { return DEF.inputsNacional; } }
   };
   var PFX = OPS.revenda;
-  function recalcularOperacoes() { Object.keys(OPS).forEach(function (k) { recalcularRevenda(OPS[k]); }); }
+  function recalcularOperacoes() { Object.keys(OPS).forEach(function (k) { recalcularRevenda(OPS[k]); }); }   // só recalcula; alíquotas só são sugeridas ao trocar UF
+  /* ---------------- ajuda "?" nos campos editáveis das três calculadoras ----------------
+   * Cada entrada: oque (o que é o campo), muda (o que acontece no cálculo ao alterar), dica (sugestão prática).
+   * Chave = id do campo sem o prefixo (in-/r-/n-). A aba nacional herda os textos da revenda, salvo os sobrescritos em AJUDA.nac. */
+  var AJUDA = {
+    imp: {
+      contribuinte: {
+        oque: 'Se o cliente é contribuinte do ICMS (tem Inscrição Estadual e revende ou industrializa — vidraçaria, serralheria, indústria) ou não (construtora, consumidor final, pessoa física, órgão público).',
+        muda: 'Não contribuinte fora de MG: o DIFAL da UF de destino (alíquota interna − 4%) é somado ao preço, por cima do preço + taxa do cartão. Contribuinte: DIFAL zero — o cliente apura o ICMS dele. Dentro de MG não há DIFAL em nenhum dos casos.',
+        dica: 'Construtora e consumidor final = Não contribuinte. Só marque Contribuinte se o cliente tiver IE ativa (confira no Sintegra/SEFAZ) e a mercadoria for para revenda ou industrialização.'
+      },
+      produto: {
+        oque: 'Vidro do cadastro (Configurações → Produtos): custo FOB em US$/m², m² por container e classe fiscal (NCM, II, IPI, PIS/COFINS).',
+        muda: 'Troca o custo de importação por m² — FOB + frete e seguro internacionais + II/IPI/PIS/COFINS + despesas + entreposto, rateados pela capacidade do container — e com ele o custo da matéria-prima, o markup e o lucro. O preço de venda digitado não muda sozinho.',
+        dica: 'Se o FOB mudou na última cotação, atualize o produto em Configurações antes de simular. Confira o dólar e o frete internacional no topo da tela: os dois entram nesse custo.'
+      },
+      perda: {
+        oque: 'Sobra e quebra do corte: quanto a mais de chapa é preciso comprar para entregar a metragem vendida.',
+        muda: 'Multiplica a quantidade comprada por (1 + perda): 100 m² vendidos com 10% custam 110 m² de matéria-prima. Só mexe no custo e no lucro — preço, impostos e DIFAL da venda não mudam.',
+        dica: '0% para chapa inteira; 5% a 15% em corte de peças. Use o aproveitamento real do plano de corte do projeto.'
+      },
+      precoBase: {
+        oque: 'Preço de venda por m² combinado com o cliente, antes da taxa do cartão e do DIFAL.',
+        muda: 'É a base de tudo: preço + taxa do cartão, ICMS efetivo (14% em MG / 1,5% fora, regime especial), PIS/COFINS, DIFAL e lucro. DIFAL e taxa do cartão são cobrados a mais, por cima deste valor — o cliente paga o "Preço final".',
+        dica: 'Compare com "Custo matéria-prima (R$/m²)" e ajuste até o lucro líquido no lucro real ficar na margem que você quer. Se prometeu preço fechado ao cliente, o número a comparar é o "Preço final ao cliente", não este campo.'
+      },
+      quantidade: {
+        oque: 'Metros quadrados vendidos — o que sai na nota fiscal.',
+        muda: 'Multiplica preço, impostos e custo; a perda é calculada por cima dela. Não altera o custo por m² da importação, que vem do container inteiro rateado pela capacidade.',
+        dica: 'Use a metragem do orçamento. Para vender um container fechado, use a capacidade cadastrada do produto (ex.: laminado 4+4 = 1.336,5 m²).'
+      },
+      frete: {
+        oque: 'Frete nacional cobrado do cliente nesta venda, em R$ total (não por m²).',
+        muda: 'Entra no preço cobrado, na base da taxa do cartão e na do DIFAL, mas fica fora da base do ICMS e do PIS/COFINS (lógica da planilha). Como também entra no custo, o efeito no lucro é só o da taxa/DIFAL sobre ele.',
+        dica: 'Deixe 0 se o cliente retira ou contrata o frete (FOB). Se você paga o frete e não cobra à parte, ele é despesa sua: considere isso na margem.'
+      },
+      pagamento: {
+        oque: 'À vista (PIX, boleto, transferência, dinheiro) ou parcelado no cartão de crédito.',
+        muda: 'À vista: taxa zero. Parcelado: taxa = MDR da bandeira + 1,5% de antecipação + 0,75% por parcela, aplicada sobre preço + frete e repassada ao cliente ("Preço + taxa do cartão"). Mesmo 1x no cartão paga taxa (Visa 1x ≈ 3,45%).',
+        dica: 'Ofereça desconto no PIX/boleto: a taxa do cartão sai do preço do cliente sem mexer na sua margem. As taxas ficam em Configurações → Cartão.'
+      },
+      bandeira: {
+        oque: 'Bandeira do cartão usado no parcelamento. Cada uma tem seu MDR em três faixas: 1x, 2–5x e 6–12x.',
+        muda: 'Só afeta a taxa quando o pagamento é Parcelado. Visa e Master têm as menores taxas (1,20% / 1,95% / 2,10%); Amex e Hipercard as maiores (até 3,05%).',
+        dica: 'Se não souber a bandeira, simule com Visa/Master (mais comum). Atualize as tabelas em Configurações → Cartão quando a adquirente mudar as taxas.'
+      },
+      parcelas: {
+        oque: 'Número de parcelas no cartão (1 a 12). Só é usado quando o pagamento é Parcelado.',
+        muda: 'Cada parcela soma 0,75% à taxa e muda a faixa do MDR (1x, 2–5x, 6–12x). Ex.: Visa 3x ≈ 5,4%; 12x ≈ 12,6% — tudo repassado ao cliente no "Preço + taxa do cartão".',
+        dica: 'Quanto mais parcelas, mais caro o preço final para o cliente. Teste 1x, 3x e 6x e mostre a diferença antes de fechar.'
+      },
+      uf: {
+        oque: 'Estado do cliente (destino da mercadoria).',
+        muda: 'Define o ICMS da venda pelo regime especial: MG = 14% efetivo (18% − 4% de crédito); qualquer outra UF = 1,5%. Para não contribuinte fora de MG soma o DIFAL da UF (alíquota interna − 4%; ex.: RJ 16%, SP 14%, ES 13%). A tabela está em Configurações → Alíquotas internas por UF.',
+        dica: 'Venda para MG não tem DIFAL, mas o ICMS é maior (14%); para fora de MG o ICMS é 1,5%, mas o não contribuinte paga DIFAL. Confira a alíquota interna da UF na tabela antes de mandar a proposta.'
+      }
+    },
+    rev: {
+      fornecedorUF: {
+        oque: 'Estado do fornecedor (importadora/distribuidor com IE) que emite a NF de entrada para a MaisGlass, em MG.',
+        muda: 'Ao trocar, o app sugere o ICMS destacado na entrada: 4% se for de outro estado (mercadoria importada, Res. SF 13/2012) ou 18% (alíquota interna) se o fornecedor for de Minas. Isso muda o crédito de ICMS e, por tabela, a base do PIS/COFINS e o custo.',
+        dica: 'Escolha a UF que está na NF do fornecedor. Se o ICMS destacado na nota for diferente do sugerido (Simples Nacional, ST, benefício), corrija o campo "ICMS destacado na entrada".'
+      },
+      precoCompra: {
+        oque: 'Valor unitário dos produtos na NF de entrada, em R$/m², com o ICMS já incluído (por dentro) e sem o IPI (que vem por fora).',
+        muda: 'Base de todos os créditos: ICMS (× alíquota destacada), IPI (× alíquota do IPI) e PIS/COFINS (9,25% sobre produtos − ICMS). Total da NF = produtos + IPI. Custo, CMV e lucro seguem daqui.',
+        dica: 'Se o fornecedor cotou "com IPI incluso", divida por 1,065 (IPI 6,5%) para chegar ao valor dos produtos. Se cotou sem impostos, peça o valor como sairá na NF.'
+      },
+      quantidade: {
+        oque: 'Metros quadrados vendidos ao cliente. A compra é quantidade × (1 + perda).',
+        muda: 'Multiplica a compra e seus créditos, a receita, os impostos da venda e o lucro.',
+        dica: 'Use a metragem do orçamento; a perda cuida da sobra do corte.'
+      },
+      perda: {
+        oque: 'Sobra e quebra do beneficiamento: quanto a mais de chapa é preciso comprar para entregar a metragem vendida.',
+        muda: 'Multiplica a quantidade comprada — e a NF de entrada, com seus créditos — por (1 + perda). Só mexe no custo e no lucro; preço e impostos da venda não mudam.',
+        dica: '0% para chapa inteira; 5% a 15% em corte de peças. Use o aproveitamento real do plano de corte.'
+      },
+      icmsCompra: {
+        oque: 'Alíquota de ICMS destacada na NF do fornecedor. Vira crédito para a MaisGlass (regime normal, lucro real).',
+        muda: 'Crédito de ICMS = produtos × alíquota. Crédito maior → ICMS a recolher menor e base do PIS/COFINS da entrada menor (o crédito de PIS/COFINS cai um pouco). Sugestão automática: 4% (importado, outro estado) ou 18% (fornecedor em MG).',
+        dica: 'Copie o percentual da NF. Fornecedor do Simples Nacional: use o percentual de crédito informado na nota (geralmente entre 1% e 3,95%). Se a nota vier com ST ou sem destaque, use 0.'
+      },
+      ipi: {
+        oque: 'Alíquota de IPI destacada na NF do fornecedor (importador é equiparado a industrial e destaca IPI; vidro plano na TIPI: 6,5%).',
+        muda: 'IPI = produtos × alíquota, somado ao total da NF. Na industrialização vira crédito (compensa o IPI da saída); na revenda sem industrializar vira custo e sai da base de crédito do PIS/COFINS.',
+        dica: 'Confira na NF. Se o fornecedor não destaca IPI (atacadista não equiparado), use 0 — então não há crédito e o IPI da saída pesa inteiro.'
+      },
+      modo: {
+        oque: 'Se a MaisGlass industrializa o vidro (corte, lapidação, furação, têmpera, laminação — RIPI art. 4º, II) antes de vender, ou revende a chapa como comprou.',
+        muda: 'Industrialização: crédito do IPI da entrada e IPI destacado na saída (6,5%). Revenda sem industrializar: o IPI da compra vira custo, não há IPI na saída (os dois controles ficam travados) e a base de crédito do PIS/COFINS exclui o IPI. O ICMS não muda.',
+        dica: 'Qualquer beneficiamento (até só o corte) já é industrialização — é o normal da MaisGlass. Use "Revenda" só para chapa vendida sem nenhum processo.'
+      },
+      ipiCredito: {
+        oque: 'Se o IPI destacado na entrada pode ser aproveitado como crédito (o vidro é insumo da industrialização).',
+        muda: 'Sim: crédito = IPI da NF; IPI a recolher = débito da saída − crédito. Não: o IPI da compra fica no custo (CMV) e o IPI da saída é pago inteiro. Só fica disponível no modo Industrialização.',
+        dica: 'Mantenha "Sim" quando o vidro entra no processo e sai com IPI destacado. "Não" só se a contadoria não escriturar o crédito (ex.: material de uso e consumo).'
+      },
+      contribuinte: {
+        oque: 'Se o cliente é contribuinte do ICMS (tem IE e revende ou industrializa) ou consumidor final não contribuinte (construtora, pessoa física, órgão público, empresa sem IE).',
+        muda: 'Não contribuinte: o IPI entra na base do ICMS (LC 87/96 art. 13 §2º) e, fora de MG, há DIFAL (interna do destino − interestadual) + FCP a recolher para a UF do cliente. Contribuinte: IPI fora da base, sem DIFAL/FCP (o cliente apura o ICMS dele).',
+        dica: 'Construtora = Não contribuinte, mesmo com CNPJ (é consumidora final). Contribuinte só com IE ativa — confira no Sintegra/SEFAZ do estado.'
+      },
+      clienteUF: {
+        oque: 'Estado do cliente (destino). A venda parte sempre de MG.',
+        muda: 'Ao trocar, o app sugere o ICMS interestadual da saída (4% importado) e busca a alíquota interna e o FCP do destino para o DIFAL (não contribuinte). Cliente em MG: venda interna a 18%, sem DIFAL. Ex.: RJ = 20% interna + 2% FCP → DIFAL 16% + FCP 2%.',
+        dica: 'Só RJ tem FCP confirmado; as outras UFs bloqueiam a venda a não contribuinte até você cadastrar o FCP em Configurações (0 se a UF não cobra). Confirme com a contadoria antes.'
+      },
+      precoVenda: {
+        oque: 'Preço de venda por m² combinado com o cliente. O que ele significa depende do campo "O preço combinado é…".',
+        muda: 'Base da receita, do IPI, do ICMS/DIFAL/FCP, do PIS/COFINS e do lucro. Preço fechado: é o total que o cliente paga (impostos saem de dentro). Valor dos produtos: IPI, DIFAL e FCP são somados por cima.',
+        dica: 'Ajuste até a margem líquida (DRE, lucro real) ficar onde você quer. Não contribuinte fora de MG com preço fechado: DIFAL + FCP (ex.: 18% no RJ) saem da sua margem — confira o lucro antes de aceitar.'
+      },
+      difalIncluso: {
+        oque: 'Como o preço foi combinado: "fechado" (valor total da NF, tudo incluído) ou "valor dos produtos" (IPI, DIFAL e FCP cobrados à parte).',
+        muda: 'Fechado: total = preço × qtd + frete; o IPI é calculado por dentro (total ÷ 1,065) e DIFAL/FCP reduzem a margem. Valor dos produtos: total = produtos × (1 + IPI) ÷ (1 − DIFAL − FCP), com gross-up; o cliente paga mais e a margem se mantém. Com cartão, a taxa entra no gross-up.',
+        dica: 'Construtora costuma negociar preço fechado. Se a proposta diz "mais impostos" ou "IPI/DIFAL por fora", use "Valor dos produtos" e mostre o total ao cliente antes de fechar.'
+      },
+      icmsSaida: {
+        oque: 'Alíquota interestadual do ICMS próprio na venda para outro estado.',
+        muda: 'ICMS débito = base × alíquota; DIFAL = base × (interna do destino − esta alíquota). Sugestão: 4% (importado com conteúdo de importação > 40% e FCI). Venda dentro de MG ignora este campo e usa 18%.',
+        dica: 'Mantenha 4% enquanto o produto beneficiado tiver mais de 40% de conteúdo importado (FCI). Se o beneficiamento levar o conteúdo importado abaixo de 40%, use 12% ou 7% conforme o destino.'
+      },
+      ipiVenda: {
+        oque: 'Alíquota de IPI destacada na NF da MaisGlass (indústria destaca sempre, mesmo para construtora).',
+        muda: 'Preço fechado: IPI = total − total ÷ (1 + alíquota), sai de dentro do preço. Valor dos produtos: IPI = produtos × alíquota, somado ao total. IPI a recolher = débito − crédito da entrada. Para não contribuinte o IPI também entra na base do ICMS.',
+        dica: '6,5% é a alíquota do vidro plano (TIPI 7005/7007). Zero só no modo Revenda (o app trava o campo) ou se a contadoria confirmar isenção/suspensão.'
+      },
+      frete: {
+        oque: 'Frete cobrado do cliente na NF (CIF), em R$ total.',
+        muda: 'Integra o valor da operação e as bases do ICMS, DIFAL, FCP, IPI e PIS/COFINS. Como também é despesa, o efeito no lucro é praticamente só o dos impostos sobre ele.',
+        dica: 'Deixe 0 se o cliente contrata o transporte (FOB) — o frete então não gera imposto para a MaisGlass. Se você paga o frete e não cobra à parte, ele é despesa sua: considere isso na margem.'
+      },
+      pagamento: {
+        oque: 'À vista (PIX, boleto, transferência, dinheiro) ou parcelado no cartão de crédito.',
+        muda: 'À vista: taxa zero. Parcelado: taxa = MDR da bandeira + 1,5% de antecipação + 0,75% por parcela. A taxa é acrescida ao valor pago pelo cliente (mesmo no preço fechado) e entra na base do IPI/ICMS/PIS/COFINS. Mesmo 1x no cartão paga taxa (Visa 1x ≈ 3,45%).',
+        dica: 'Ofereça desconto no PIX/boleto: a taxa sai do preço do cliente sem mexer na sua margem. As taxas ficam em Configurações → Cartão.'
+      },
+      bandeira: {
+        oque: 'Bandeira do cartão usado no parcelamento. Cada uma tem seu MDR em três faixas: 1x, 2–5x e 6–12x.',
+        muda: 'Só afeta a taxa quando o pagamento é Parcelado. Visa e Master têm as menores taxas (1,20% / 1,95% / 2,10%); Amex e Hipercard as maiores (até 3,05%).',
+        dica: 'Se não souber a bandeira, simule com Visa/Master (mais comum). Atualize as tabelas em Configurações → Cartão quando a adquirente mudar as taxas.'
+      },
+      parcelas: {
+        oque: 'Número de parcelas no cartão (1 a 12). Só é usado quando o pagamento é Parcelado.',
+        muda: 'Cada parcela soma 0,75% à taxa e muda a faixa do MDR (1x, 2–5x, 6–12x). Ex.: Visa 3x ≈ 5,4%; Amex 3x ≈ 6,4%; Visa 12x ≈ 12,6% — tudo acrescido ao valor pago pelo cliente.',
+        dica: 'Quanto mais parcelas, mais caro o total para o cliente. Teste 1x, 3x e 6x e mostre a diferença antes de fechar.'
+      }
+    },
+    nac: {
+      fornecedorUF: {
+        oque: 'Estado da indústria nacional (com IE) que emite a NF de entrada para a MaisGlass, em MG.',
+        muda: 'Ao trocar, o app sugere o ICMS destacado na entrada: 12% de qualquer outro estado (Res. SF 22/1989 — com destino em MG é sempre 12%) ou 18% (alíquota interna) se a indústria for de Minas. Isso muda o crédito de ICMS e, por tabela, a base do PIS/COFINS e o custo.',
+        dica: 'Escolha a UF que está na NF. Indústria do Simples Nacional destaca crédito menor (o percentual vem informado na nota) e não destaca IPI — ajuste os campos de ICMS e IPI da entrada.'
+      },
+      icmsCompra: {
+        oque: 'Alíquota de ICMS destacada na NF da indústria. Vira crédito para a MaisGlass (regime normal, lucro real).',
+        muda: 'Crédito de ICMS = produtos × alíquota. Crédito maior → ICMS a recolher menor e base do PIS/COFINS da entrada menor. Sugestão automática: 12% (outro estado) ou 18% (indústria em MG).',
+        dica: 'Copie o percentual da NF. Fornecedor do Simples Nacional: use o percentual de crédito informado na nota (geralmente entre 1% e 3,95%). Se a nota vier com ST ou sem destaque, use 0.'
+      },
+      ipi: {
+        oque: 'Alíquota de IPI destacada pela indústria nacional, conforme o NCM na TIPI (vidro plano 7005/7007: 6,5%).',
+        muda: 'IPI = produtos × alíquota, somado ao total da NF. Na industrialização vira crédito (compensa o IPI da saída); na revenda sem industrializar vira custo e sai da base de crédito do PIS/COFINS.',
+        dica: 'Confirme na NF e na TIPI do NCM do fornecedor. Indústria do Simples Nacional não destaca IPI — use 0.'
+      },
+      clienteUF: {
+        oque: 'Estado do cliente (destino). A venda parte sempre de MG.',
+        muda: 'Ao trocar, o app sugere o ICMS interestadual da saída (12%, ou 7% para N/NE/CO e ES) e busca a alíquota interna e o FCP do destino para o DIFAL (não contribuinte). Cliente em MG: venda interna a 18%, sem DIFAL. Ex.: RJ = 20% interna + 2% FCP → DIFAL 8% + FCP 2%.',
+        dica: 'Só RJ tem FCP confirmado; as outras UFs bloqueiam a venda a não contribuinte até você cadastrar o FCP em Configurações (0 se a UF não cobra). Confirme com a contadoria antes.'
+      },
+      icmsSaida: {
+        oque: 'Alíquota interestadual do ICMS próprio na venda de mercadoria nacional para outro estado.',
+        muda: 'ICMS débito = base × alíquota; DIFAL = base × (interna do destino − esta alíquota). Sugestão: 12%, ou 7% quando o destino é Norte/Nordeste/Centro-Oeste ou ES (Res. SF 22/1989). Venda dentro de MG ignora este campo e usa 18%.',
+        dica: 'O valor sugerido cobre a regra geral; só altere se a contadoria indicar outro enquadramento (benefício fiscal do destino, por exemplo).'
+      }
+    }
+  };
+  var helpBox = null, helpBtnAtivo = null;
+  function textoAjuda(btn) {
+    var sec = btn.closest('section'), tab = sec ? sec.id : '';
+    var op = tab === 'tab-calc' ? 'imp' : (tab === 'tab-nacional' ? 'nac' : 'rev');
+    var chave = btn.getAttribute('data-help');
+    return (op === 'nac' && AJUDA.nac[chave]) || (op === 'imp' ? AJUDA.imp[chave] : AJUDA.rev[chave]) || null;
+  }
+  function tituloCampo(label) {
+    var t = ''; label.childNodes.forEach(function (n) { if (n.nodeType === 3) t += n.textContent; });
+    return t.trim();
+  }
+  function fecharAjuda() {
+    if (helpBox) { helpBox.remove(); helpBox = null; }
+    if (helpBtnAtivo) { helpBtnAtivo.classList.remove('on'); helpBtnAtivo.setAttribute('aria-expanded', 'false'); helpBtnAtivo = null; }
+  }
+  /* Abre a explicação dentro do próprio campo (caixa abaixo do rótulo/controle), uma por vez; clicar de novo, no × ou Esc fecha */
+  function abrirAjuda(btn) {
+    if (helpBtnAtivo === btn) { fecharAjuda(); return; }
+    fecharAjuda();
+    var a = textoAjuda(btn), field = btn.closest('.field'); if (!a || !field) return;
+    var label = btn.closest('label');
+    var box = document.createElement('div');
+    box.className = 'help-box'; box.setAttribute('role', 'note');
+    var h = document.createElement('h4'); h.textContent = label ? tituloCampo(label) : 'Ajuda';
+    box.appendChild(h);
+    [['O que é', a.oque], ['O que muda', a.muda], ['Sugestão', a.dica]].forEach(function (par) {
+      var p = document.createElement('p'), b = document.createElement('b');
+      b.textContent = par[0] + ': '; p.appendChild(b); p.appendChild(document.createTextNode(par[1])); box.appendChild(p);
+    });
+    var x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.textContent = '×'; x.setAttribute('aria-label', 'Fechar ajuda');
+    x.addEventListener('click', fecharAjuda); box.appendChild(x);
+    field.appendChild(box);
+    helpBox = box; helpBtnAtivo = btn; btn.classList.add('on'); btn.setAttribute('aria-expanded', 'true');
+  }
+  /* Insere o botão "?" em cada campo editável das abas de cálculo (antes de clonar a aba nacional, que herda os botões) */
+  function montarAjuda() {
+    document.querySelectorAll('#tab-calc .field, #tab-revenda .field').forEach(function (f) {
+      var ctl = f.querySelector('input[id], select[id]'), label = f.querySelector('label');
+      if (!ctl || !label) return;
+      var chave = ctl.id.replace(/^(in|r)-/, '');
+      if (!AJUDA.imp[chave] && !AJUDA.rev[chave]) return;
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'help'; b.textContent = '?';
+      b.setAttribute('data-help', chave); b.setAttribute('aria-expanded', 'false');
+      b.setAttribute('aria-label', 'Ajuda: ' + tituloCampo(label)); b.title = 'O que é este campo e o que muda ao alterar';
+      var sm = label.querySelector('small');
+      if (sm) label.insertBefore(b, sm); else label.appendChild(b);
+    });
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('button.help') : null;
+      if (b) { e.preventDefault(); abrirAjuda(b); }
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') fecharAjuda(); });
+  }
+
   /* Monta a aba "Indústria nacional" clonando a da revenda (mesmos campos, ids com prefixo n-/no-/nviz) */
   function montarAbaNacional() {
     var html = $('tab-revenda').innerHTML.replace(/id="r-/g, 'id="n-').replace(/id="ro-/g, 'id="no-').replace(/id="rviz-/g, 'id="nviz-');
     $('tab-nacional').innerHTML = html;
     function hint(id, texto) { var f = $(id).closest('.field'); var sm = f && f.querySelector('small'); if (sm) sm.textContent = texto; }
     var h2 = $('tab-nacional').querySelector('.card.purple h2'); if (h2) h2.textContent = 'Entrada — compra da indústria nacional (com IE)';
-    hint('n-icmsCompra', '12% = vidro nacional vindo de SP/Sul/Sudeste; 7% se o fornecedor for do N/NE/CO/ES');
-    hint('n-icmsSaida', '12% = MG → RJ (nacional: alíquota interestadual cheia; 7% para N/NE/CO/ES). Não depende de FCI');
     hint('n-ipi', 'Conforme TIPI do NCM do fornecedor — confirmar na NF');
+    // Glossário: a aba nacional não fala em 4%/FCI
+    var gl = $('tab-nacional').querySelector('.gloss');
+    if (gl) gl.querySelectorAll('p').forEach(function (par) {
+      var t = par.innerHTML;
+      t = t.replace('4% na interestadual de mercadoria importada (Res. SF 13/2012)', '12% ou 7% na interestadual de mercadoria nacional (Res. SF 22/1989)');
+      t = t.replace('<b>FCI</b> — Ficha de Conteúdo de Importação, obrigatória para manter os 4% quando o produto industrializado tem mais de 40% de conteúdo importado.', 'Vidro nacional não exige FCI.');
+      par.innerHTML = t;
+    });
   }
 
   /* ---------------- calculadora 2: revenda ---------------- */
@@ -249,9 +478,9 @@
     $(PFX.i + 'quantidade').value = d.quantidade;
     $(PFX.i + 'perda').value = d.perda * 100;
     $(PFX.i + 'icmsCompra').value = Math.round((imp && rv.icmsCompraImportado !== undefined ? rv.icmsCompraImportado : d.icmsCompra) * 1e4) / 100;
-    $(PFX.i + 'ipi').value = Math.round((rv.ipiCompra !== undefined ? rv.ipiCompra : d.ipi) * 1e4) / 100;
+    $(PFX.i + 'ipi').value = Math.round((imp && rv.ipiCompra !== undefined ? rv.ipiCompra : d.ipi) * 1e4) / 100;   // padrão da revenda só na revenda
     $(PFX.i + 'modo').value = d.modo;
-    $(PFX.i + 'ipiCredito').value = d.ipiCredito ? 'sim' : 'nao';
+    $(PFX.i + 'ipiCredito').value = (imp && rv.ipiCredito !== undefined ? rv.ipiCredito : d.ipiCredito) ? 'sim' : 'nao';
     $(PFX.i + 'difalIncluso').value = d.difalIncluso ? 'dentro' : 'fora';
     $(PFX.i + 'contribuinte').value = d.contribuinte ? 'sim' : 'nao';
     $(PFX.i + 'clienteUF').value = d.clienteUF;
@@ -262,14 +491,51 @@
     $(PFX.i + 'pagamento').value = d.pagamento;
     $(PFX.i + 'bandeira').value = d.bandeira;
     $(PFX.i + 'parcelas').value = d.parcelas;
+    $(PFX.i + 'ipiCredito').disabled = d.modo === 'revenda';
+    $(PFX.i + 'ipiVenda').disabled = d.modo === 'revenda';
+    sugerirAliquotas();
+  }
+
+  /* Alíquota interestadual sugerida automaticamente ao trocar a UF (Res. SF 22/1989 e 13/2012).
+   * Entrada: fornecedor → empresa. Saída: empresa → cliente. Importado (calc 2): 4%. Operação interna: campo mostra a interna da UF. */
+  function sugerirAliquotas(op, qual) {
+    if (op) PFX = op;
+    var fazEntrada = qual !== 'saida', fazSaida = qual !== 'entrada';
+    var empresaUF = CALC.EMPRESA_UF;
+    var importado = PFX.origem === 'importado';
+    function interna(uf) { var d = config.difal && config.difal[uf]; return Array.isArray(d) ? d[0] : null; }
+    function pctTxt(v) { return Math.round(v * 1e4) / 100; }
+    var fornUF = $(PFX.i + 'fornecedorUF').value, cliUF = $(PFX.i + 'clienteUF').value;
+    if (fornUF && fazEntrada) {
+      var ent = CALC.aliquotaInterestadual(fornUF, empresaUF, importado);
+      if (ent === null) ent = interna(fornUF);                       // fornecedor na mesma UF: alíquota interna
+      if (ent !== null) $(PFX.i + 'icmsCompra').value = pctTxt(ent);
+      $(PFX.i + 'icmsCompraSug').textContent = fornUF === empresaUF ? 'Fornecedor em ' + empresaUF + ': operação interna, alíquota interna ' + pctTxt(ent) + '%.'
+        : (importado ? '4% — mercadoria importada, interestadual (Res. SF 13/2012).' : pctTxt(ent) + '% — interestadual ' + fornUF + ' → ' + empresaUF + ' (Res. SF 22/1989).');
+    }
+    if (cliUF && fazSaida) {
+      var sai = CALC.aliquotaInterestadual(empresaUF, cliUF, importado);
+      if (sai !== null) $(PFX.i + 'icmsSaida').value = pctTxt(sai);
+      $(PFX.i + 'icmsSaidaSug').textContent = cliUF === empresaUF ? 'Venda interna em ' + empresaUF + ': o motor usa a alíquota interna (' + pctTxt(interna(empresaUF)) + '%); este campo não se aplica.'
+        : (importado ? '4% — importado com conteúdo > 40% e FCI; 12%/7% se não mantiver.' : pctTxt(sai) + '% — interestadual ' + empresaUF + ' → ' + cliUF + ' (nacional).');
+    }
+    $(PFX.i + 'empresaInfo').textContent = 'Empresa em ' + empresaUF + ' (fixo — regime especial da importação direta é de Minas).';
   }
 
   function aplicarModoRevenda(op) {
     if (op) PFX = op;
     // Coerência fiscal: revenda pura → IPI da compra é custo e não há IPI na saída;
     // beneficiamento → crédito do IPI e IPI destacado na saída (padrão da classe, 6,5%).
-    if ($(PFX.i + 'modo').value === 'beneficiamento') { $(PFX.i + 'ipiCredito').value = 'sim'; $(PFX.i + 'ipiVenda').value = 6.5; }
-    else { $(PFX.i + 'ipiCredito').value = 'nao'; $(PFX.i + 'ipiVenda').value = 0; }
+    var revendaPura = $(PFX.i + 'modo').value === 'revenda';
+    if (revendaPura) { $(PFX.i + 'ipiCredito').value = 'nao'; $(PFX.i + 'ipiVenda').value = 0; }
+    else {
+      var d = PFX.defaults(), rv = config.revenda || {}, imp = PFX.origem === 'importado';
+      $(PFX.i + 'ipiCredito').value = (imp && rv.ipiCredito !== undefined ? rv.ipiCredito : d.ipiCredito) ? 'sim' : 'nao';
+      $(PFX.i + 'ipiVenda').value = Math.round(d.ipiVenda * 1e4) / 100;
+    }
+    // Em revenda pura o motor força crédito 0 e IPI de saída 0: os controles ficam travados para não mostrar valor ignorado
+    $(PFX.i + 'ipiCredito').disabled = revendaPura;
+    $(PFX.i + 'ipiVenda').disabled = revendaPura;
   }
   function recalcularRevenda(op) {
     if (op) PFX = op;
@@ -280,7 +546,7 @@
     var r;
     try { r = CALC.calcularRevenda(config, inp); }
     catch (e) { limparResultadosRevenda(e.message); return; }
-    var empresaUF = (config.revenda && config.revenda.empresaUF) || 'MG';
+    var empresaUF = CALC.EMPRESA_UF;
 
     $(PFX.o + 'precoFinal').textContent = brl(r.precoFinal);
     $(PFX.o + 'precoM2').textContent = brl(r.precoVendaM2) + ' por m² · ' + numFmt(Number(inp.quantidade), 2) + ' m²';
@@ -445,7 +711,7 @@
     try { r = CALC.calcular(config, inp); }
     catch (e) { limparResultados(e.message); return; }
 
-    $('hdrDolar').textContent = 'Dólar ' + numFmt(config.dolar, 2);
+    atualizarCabecalho();
     $('out-precoFinal').textContent = brl(r.precoFinal);
     $('out-precoFinal2').textContent = brl(r.precoFinal);
     $('out-precoM2').textContent = brl(r.precoVendaM2) + ' por m² · ' + numFmt(Number(inp.quantidade), 2) + ' m²';
@@ -533,6 +799,7 @@
   function esconderTip() { if (tipEl) tipEl.style.display = 'none'; }
 
   function limparResultados(msg) {
+    atualizarCabecalho();
     document.querySelectorAll('#tab-calc .kv .v, #tab-calc .result-hero .value').forEach(function (n) {
       if (n.querySelector('#out-ncm')) { $('out-ncm').textContent = '—'; } else { n.textContent = '—'; }
     });
@@ -577,7 +844,6 @@
   /* ---------------- aba configurações ---------------- */
   function renderConfig() {
     // campos simples data-cfg
-    var selUF = $('cfg-empresaUF'); if (!selUF.options.length) CALC.UFS.forEach(function (uf) { selUF.appendChild(el('option', { value: uf, text: uf })); });
     document.querySelectorAll('[data-cfg]').forEach(function (inp) {
       var v = getPath(draft, inp.getAttribute('data-cfg'));
       var t = inp.getAttribute('data-type');
@@ -613,6 +879,7 @@
       else { v = inp.value === '' ? NaN : Number(inp.value); if (t === 'pct') v = v / 100; }
       setPath(draft, inp.getAttribute('data-cfg'), v);
     });
+    CALC.derivarDifal(draft);   // coluna DIFAL (calc 1) acompanha a alíquota interna e a UF da empresa
   }
 
   function inputCell(value, onChange, opts) {
@@ -650,7 +917,7 @@
         var sel = el('select', {}, classes.map(function (k) { return el('option', { value: k, text: k }); }));
         sel.value = p.classe;
         sel.addEventListener('change', function () { p.classe = sel.value; });
-        var rm = el('button', { class: 'btn small danger', text: 'Remover', onclick: function () { draft.produtos.splice(idx, 1); renderProdutos(); } });
+        var rm = el('button', { class: 'btn small danger', text: 'Remover', onclick: function () { draft.produtos.splice(idx, 1); renderProdutos(); $('tab-config').dispatchEvent(new Event('change', { bubbles: true })); } });
         return el('tr', {}, [
           inputCell(p.nome, function (v) { p.nome = v.trim(); }, { type: 'text', wide: true }),
           inputCell(p.custo, function (v) { p.custo = v === '' ? NaN : Number(v); }, { step: '0.01' }),
@@ -677,14 +944,16 @@
   }
 
   function renderDifal() {
+    CALC.derivarDifal(draft);
+    var empresaUF = CALC.EMPRESA_UF;
     var tbl = el('table', {}, [
-      el('thead', {}, [el('tr', {}, ['UF', 'Alíquota interna %', 'DIFAL %'].map(function (h) { return el('th', { text: h }); }))]),
+      el('thead', {}, [el('tr', {}, ['UF', 'Alíquota interna %', 'DIFAL % (importação direta — calculado)'].map(function (h) { return el('th', { text: h }); }))]),
       el('tbody', {}, Object.keys(draft.difal).sort().map(function (uf) {
         var d = draft.difal[uf];
         return el('tr', {}, [
-          el('td', { text: uf }),
-          inputCell(Math.round(d[0] * 1e6) / 1e4, function (v) { d[0] = (v === '' ? NaN : Number(v)) / 100; }, { step: '0.5' }),
-          inputCell(Math.round(d[1] * 1e6) / 1e4, function (v) { d[1] = (v === '' ? NaN : Number(v)) / 100; }, { step: '0.5' })
+          el('td', { text: uf + (uf === empresaUF ? ' (empresa)' : '') }),
+          inputCell(Math.round(d[0] * 1e6) / 1e4, function (v) { d[0] = (v === '' ? NaN : Number(v)) / 100; CALC.derivarDifal(draft); renderDifal(); }, { step: '0.5' }),
+          el('td', { class: 'num', text: isFinite(d[1]) ? (Math.round(d[1] * 1e6) / 1e4) + '%' : '—', style: 'text-align:right;color:var(--muted)' })
         ]);
       }))
     ]);
@@ -741,7 +1010,7 @@
       catch (e) { status('Arquivo inválido: ' + e.message, 'err'); return; }
       draft = candidato;
       renderConfig();
-      status('Arquivo carregado. Clique em "Salvar configurações" para aplicar.', 'ok');
+      status('Arquivo carregado. Clique em "Salvar agora" para aplicar (ou continue editando).', 'ok');
     };
     fr.readAsText(file);
   }
@@ -759,6 +1028,7 @@
   function iniciarApp() {
     if (iniciado) return; iniciado = true;
     config = carregarConfig();
+    montarAjuda();          // botões "?" nas abas calc/revenda — antes do clone, para a aba nacional herdá-los
     montarAbaNacional();
     preencherListas();
     aplicarEntradasPadrao();
@@ -769,6 +1039,8 @@
       aplicarEntradasPadraoRevenda(op);
       recalcularRevenda(op);
       $(op.i + 'modo').addEventListener('change', function () { aplicarModoRevenda(op); recalcularRevenda(op); });
+      $(op.i + 'fornecedorUF').addEventListener('change', function () { sugerirAliquotas(op, 'entrada'); recalcularRevenda(op); });
+      $(op.i + 'clienteUF').addEventListener('change', function () { sugerirAliquotas(op, 'saida'); recalcularRevenda(op); });
       document.querySelectorAll('#' + op.tab + ' input, #' + op.tab + ' select').forEach(function (i) {
         var f = function () { recalcularRevenda(op); };
         i.addEventListener('input', f); i.addEventListener('change', f);
@@ -786,7 +1058,10 @@
     $('cfgSalvar').addEventListener('click', salvar);
     // Salvamento automático: qualquer alteração na aba Configurações valida e salva sozinha.
     var autoTimer = null;
-    function agendarAutoSalvar() { clearTimeout(autoTimer); autoTimer = setTimeout(autoSalvar, 500); }
+    function agendarAutoSalvar(e) {
+      if (e && e.target && e.target.id === 'cfgArquivo') { clearTimeout(autoTimer); autoTimer = null; return; }   // importar JSON cancela autosave pendente; só aplica em "Salvar agora"
+      clearTimeout(autoTimer); autoTimer = setTimeout(autoSalvar, 500);
+    }
     $('tab-config').addEventListener('input', agendarAutoSalvar);
     $('tab-config').addEventListener('change', agendarAutoSalvar);
     $('cfgExportar').addEventListener('click', exportar);
@@ -797,6 +1072,7 @@
       lerCamposSimples();
       draft.produtos.push({ nome: 'Novo produto', custo: 0, capacidade: 1000, classe: Object.keys(draft.classes)[0] });
       renderProdutos();
+      $('tab-config').dispatchEvent(new Event('change', { bubbles: true }));
     });
     document.querySelector('[data-cfg="dentro"]').addEventListener('input', function () {
       draft.dentro = Math.min(1, Math.max(0, (parseFloat(this.value) || 0) / 100)); atualizarFora();

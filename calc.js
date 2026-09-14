@@ -13,6 +13,37 @@
   'use strict';
 
   var UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MS','MT','MG','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
+  /* UF da empresa: fixa em MG. O regime especial da importação direta (ICMS efetivo 14% interno / 1,5% fora) está
+   * parametrizado para Minas dentro de calcular(); permitir outra UF deixaria a calc 1 incoerente (parecer Codex nº 2, item 1). */
+  var EMPRESA_UF = 'MG';
+
+  /* Regiões para a alíquota interestadual (Resolução do Senado 22/1989):
+   * 7% quando a mercadoria sai do Sul/Sudeste (exceto ES) para Norte, Nordeste, Centro-Oeste ou ES; 12% nos demais casos.
+   * Mercadoria importada (ou com conteúdo de importação > 40%): 4% em qualquer interestadual (Resolução 13/2012). */
+  var UF_SUL_SUDESTE = ['MG', 'RJ', 'SP', 'PR', 'RS', 'SC'];                  // origem que aplica 7% (ES fica de fora)
+  var UF_N_NE_CO_ES = ['AC','AM','AP','PA','RO','RR','TO','AL','BA','CE','MA','PB','PE','PI','RN','SE','DF','GO','MS','MT','ES'];
+  function aliquotaInterestadual(origem, destino, importado) {
+    if (UFS.indexOf(origem) < 0) throw new Error('UF de origem desconhecida: ' + origem);
+    if (UFS.indexOf(destino) < 0) throw new Error('UF de destino desconhecida: ' + destino);
+    if (origem === destino) return null;                                       // operação interna: usa a alíquota interna da UF
+    if (importado) return 0.04;
+    return (UF_SUL_SUDESTE.indexOf(origem) >= 0 && UF_N_NE_CO_ES.indexOf(destino) >= 0) ? 0.07 : 0.12;
+  }
+
+  /* Coluna "DIFAL %" da tabela (usada só pela calculadora 1, importação direta — B16 da planilha):
+   * derivada da alíquota interna: interna − 4% (interestadual do importado, Res. SF 13/2012); 0 em MG (venda interna).
+   * Assim, atualizar a alíquota interna de um estado atualiza o DIFAL da importação direta junto. */
+  function derivarDifal(config) {
+    if (!isObj(config) || !isObj(config.difal)) return config;
+    var inter = 0.04;                                          // Res. SF 13/2012 — fixo, não depende de config.interestadual
+    var empresaUF = EMPRESA_UF;
+    Object.keys(config.difal).forEach(function (uf) {
+      var d = config.difal[uf];
+      if (!Array.isArray(d) || d.length !== 2 || typeof d[0] !== 'number' || !isFinite(d[0])) return;
+      d[1] = uf === empresaUF ? 0 : Math.max(0, Math.round((d[0] - inter) * 1e6) / 1e6);
+    });
+    return config;
+  }
 
   function has(obj, key) { return obj != null && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, key); }
   function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
@@ -37,6 +68,45 @@
       if (typeof obj[k] === 'number' && !isFinite(obj[k])) throw new Error('Resultado não finito em "' + k + '" — confira as entradas.');
     });
     return obj;
+  }
+
+  /* -------------------------------------------------------------------
+   * Migração da configuração salva (pura, testável): completa chaves ausentes
+   * com o padrão, aplica correções de versão só onde o valor salvo ainda é o
+   * da planilha original (ajustes manuais são preservados), fixa a empresa em
+   * MG, converte FCP "zero automático" em null e deriva a coluna DIFAL.
+   *   v2: MG interna 11% → 18%   v3: PR 19 → 19,5 · RS 18 → 17 · MT 19 → 17
+   * ----------------------------------------------------------------- */
+  function migrarConfig(cfg, padrao) {
+    if (!isObj(cfg)) throw new Error('Configuração deve ser um objeto JSON.');
+    if (!isObj(padrao)) throw new Error('Padrão inválido.');
+    var out = JSON.parse(JSON.stringify(cfg));
+    function merge(dst, src) {
+      Object.keys(src).forEach(function (k) {
+        if (dst[k] === undefined) dst[k] = JSON.parse(JSON.stringify(src[k]));
+        else if (isObj(src[k]) && isObj(dst[k])) merge(dst[k], src[k]);
+      });
+    }
+    var fcpAntigo = isObj(out.revenda) && isObj(out.revenda.fcp) && !out.revenda.fcpRevisado;
+    var versaoSalva = typeof out.versao === 'number' ? out.versao : 1;
+    if (versaoSalva > padrao.versao) throw new Error('Configuração de versão ' + versaoSalva + ' é mais nova que este app (versão ' + padrao.versao + ').');
+    merge(out, padrao);
+    function corrigeInterna(uf, antiga, nova) {
+      if (isObj(out.difal) && Array.isArray(out.difal[uf]) && typeof out.difal[uf][0] === 'number' && Math.abs(out.difal[uf][0] - antiga) < 1e-9) out.difal[uf][0] = nova;
+    }
+    if (versaoSalva < 2) corrigeInterna('MG', 0.11, 0.18);
+    if (versaoSalva < 3) { corrigeInterna('PR', 0.19, 0.195); corrigeInterna('RS', 0.18, 0.17); corrigeInterna('MT', 0.19, 0.17); }
+    out.versao = padrao.versao;
+    if (isObj(out.revenda)) out.revenda.empresaUF = EMPRESA_UF;
+    out.interestadual = 0.04;                                              // Res. SF 13/2012 — não é configurável
+    if (fcpAntigo && isObj(padrao.revenda) && isObj(padrao.revenda.fcp)) {
+      Object.keys(out.revenda.fcp).forEach(function (uf) {
+        if (out.revenda.fcp[uf] === 0 && padrao.revenda.fcp[uf] === null) out.revenda.fcp[uf] = null;
+      });
+      out.revenda.fcpRevisado = true;
+    }
+    derivarDifal(out);
+    return out;
   }
 
   /* -------------------------------------------------------------------
@@ -104,13 +174,16 @@
         var f = ct.mdr[b];
         if (!Array.isArray(f) || f.length !== 3) { erros.push('MDR de "' + b + '" deve ter 3 faixas.'); return; }
         f.forEach(function (v, i) { tenta(function () { fracao(v, 'MDR ' + b + '[' + i + ']'); }); });
+        // pior caso da bandeira (12 parcelas na faixa 6–12x) precisa ficar abaixo de 100%
+        var pior = Number(f[2]) + Number(ct.antecipacaoBase) + Number(ct.porParcela) * 12;
+        if (isFinite(pior) && pior >= 1) erros.push('Cartão "' + b + '": taxa em 12x chega a ' + Math.round(pior * 1000) / 10 + '% (limite 100%).');
       });
     }
 
     var rv = cfg.revenda;
     if (!isObj(rv)) erros.push('Configuração de revenda ausente.');
     else {
-      if (UFS.indexOf(rv.empresaUF) < 0) erros.push('UF da empresa inválida.');
+      if (rv.empresaUF !== undefined && rv.empresaUF !== EMPRESA_UF) erros.push('UF da empresa é fixa em ' + EMPRESA_UF + ' (regime especial da importação direta).');
       if (rv.ipiCredito !== undefined && typeof rv.ipiCredito !== 'boolean') erros.push('revenda.ipiCredito deve ser verdadeiro/falso.');
       tenta(function () { fracao(rv.icmsCompraImportado, 'revenda.icmsCompraImportado'); });
       tenta(function () { fracao(rv.ipiCompra, 'revenda.ipiCompra'); });
@@ -127,6 +200,7 @@
     else ['irpjCsllReal', 'presumidoBaseIRPJ', 'presumidoBaseCSLL', 'irpj', 'csll', 'pisCumulativo', 'cofinsCumulativo']
       .forEach(function (f) { tenta(function () { fracao(tb[f], 'tributos.' + f); }); });
 
+    if (cfg.interestadual !== undefined && Math.abs(cfg.interestadual - 0.04) > 1e-12) erros.push('interestadual deve ser 0,04 (Res. SF 13/2012).');
     if (!isObj(cfg.difal) || Object.keys(cfg.difal).length === 0) erros.push('Tabela DIFAL ausente.');
     else Object.keys(cfg.difal).forEach(function (uf) {
       if (UFS.indexOf(uf) < 0) { erros.push('UF desconhecida na tabela DIFAL: ' + uf); return; }
@@ -228,7 +302,9 @@
     var faixas = mdr[inputs.bandeira];
     if (!Array.isArray(faixas) || faixas.length !== 3) throw new Error('Tabela MDR inválida para ' + inputs.bandeira);
     var idx = parcelas === 1 ? 0 : (parcelas <= 5 ? 1 : 2);
-    return fracao(faixas[idx], 'MDR') + fracao(config.cartao.antecipacaoBase, 'antecipação') + fracao(config.cartao.porParcela, 'por parcela') * parcelas;
+    var total = fracao(faixas[idx], 'MDR') + fracao(config.cartao.antecipacaoBase, 'antecipação') + fracao(config.cartao.porParcela, 'por parcela') * parcelas;
+    if (total >= 1) throw new Error('Taxa total do cartão (' + Math.round(total * 1000) / 10 + '%) não pode ser 100% ou mais.');
+    return total;
   }
 
   /* -------------------------------------------------------------------
@@ -337,7 +413,7 @@
     if (!isObj(inputs)) throw new Error('Entradas inválidas.');
     var rv = config.revenda || {};
     var s = config.saida || {};
-    var empresaUF = rv.empresaUF || 'MG';
+    var empresaUF = EMPRESA_UF;                                // fixo (config.revenda.empresaUF é validado como MG)
     function interna(uf) {
       var d = config.difal[uf];
       if (!Array.isArray(d) || d.length !== 2) throw new Error('Tabela DIFAL inválida para ' + uf);
@@ -353,7 +429,12 @@
     var qtdComPerda = qtd * (1 + perda);                       // perda = compra adicional sobre a quantidade vendida (como na calc 1)
     var icmsCompraAliq = fracao(inputs.icmsCompra, 'ICMS da compra');
     var ipiAliq = fracao(inputs.ipi, 'IPI');
+    // Natureza da operação: 'beneficiamento' (industrialização: crédito de IPI na entrada e IPI na saída) ou
+    // 'revenda' (sem industrializar: IPI da compra é custo, sem IPI na saída). Ausente = não força nada (compatibilidade).
+    var modo = inputs.modo === undefined ? null : inputs.modo;
+    if (modo !== null && modo !== 'beneficiamento' && modo !== 'revenda') throw new Error('Natureza da operação inválida: "' + modo + '" (use beneficiamento ou revenda).');
     var ipiCredito = booleano(inputs.ipiCredito, 'Crédito de IPI', !!rv.ipiCredito);
+    if (modo === 'revenda') ipiCredito = false;               // revenda pura não credita IPI
 
     var compraProdutos = precoCompra * qtdComPerda;          // valor dos produtos (ICMS incluso)
     var ipiCompra = compraProdutos * ipiAliq;                 // IPI destacado por fora
@@ -373,7 +454,7 @@
     var precoFechado = booleano(inputs.difalIncluso, 'Preço fechado', false);
     var precoVenda = nonNeg(inputs.precoVenda, 'preço de venda');
     var frete = nonNeg(inputs.frete, 'frete');
-    var ipiVendaAliq = fracao(inputs.ipiVenda === undefined ? 0 : inputs.ipiVenda, 'IPI na venda');
+    var ipiVendaAliq = modo === 'revenda' ? 0 : fracao(inputs.ipiVenda === undefined ? 0 : inputs.ipiVenda, 'IPI na venda');  // revenda pura não destaca IPI
 
     var vendaInterna = clienteUF === empresaUF;
     var interestadual = fracao(config.interestadual, 'interestadual');
@@ -387,24 +468,29 @@
       fcpPct = fracao(rv.fcp[clienteUF], 'FCP ' + clienteUF);
     }
 
-    // Taxa do cartão: gross-up (preço ÷ (1 − taxa)) para que o líquido recebido seja o preço combinado + frete
+    // Taxa do cartão: a operadora cobra a taxa sobre o TOTAL pago pelo cliente (valor da operação).
     var taxa = taxaCartao(config, inputs);
     var subtotal = precoVenda * qtd + frete;                  // preço combinado + frete cobrado na NF (CIF integra a operação)
-    var precoComTaxa = taxa > 0 ? subtotal / (1 - taxa) : subtotal;
-    var valorTaxaCartao = precoComTaxa - subtotal;
-
-    // Valor da operação (total da NF) e IPI
-    var valorProdutos, ipiVenda, valorOperacao;
+    var valorProdutos, ipiVenda, valorOperacao, precoComTaxa, valorTaxaCartao;
     if (precoFechado) {
-      valorOperacao = precoComTaxa;                            // o cliente paga exatamente o combinado
+      // Preço fechado: o combinado é o total da NF; a taxa do cartão é acrescida por gross-up (total = combinado ÷ (1 − taxa))
+      valorOperacao = taxa > 0 ? subtotal / (1 - taxa) : subtotal;
+      valorTaxaCartao = valorOperacao * taxa;
+      precoComTaxa = valorOperacao;
       valorProdutos = valorOperacao / (1 + ipiVendaAliq);      // IPI por dentro
       ipiVenda = valorOperacao - valorProdutos;
     } else {
-      valorProdutos = precoComTaxa;                            // o combinado é o valor dos produtos (+ frete)
+      // Preço por fora: o combinado é o valor dos produtos líquido da taxa do cartão; IPI, DIFAL, FCP e a taxa são cobrados
+      // em acréscimo, com gross-up simultâneo (parecer Codex nº 2, item 2):
+      //   total × (1 − DIFAL − FCP) = produtos × (1 + IPI)   e   produtos = combinado + total × taxa
+      //   ⇒ total = combinado × (1 + IPI) ÷ [(1 − DIFAL − FCP) − taxa × (1 + IPI)]
+      var divisor = (1 - difalPct - fcpPct) - taxa * (1 + ipiVendaAliq);
+      if (divisor <= 0) throw new Error('DIFAL + FCP + taxa do cartão ≥ 100%: gross-up impossível.');
+      valorOperacao = subtotal * (1 + ipiVendaAliq) / divisor;
+      valorTaxaCartao = valorOperacao * taxa;
+      precoComTaxa = subtotal + valorTaxaCartao;               // valor dos produtos na NF (combinado + taxa repassada)
+      valorProdutos = precoComTaxa;
       ipiVenda = valorProdutos * ipiVendaAliq;
-      var divisor = 1 - difalPct - fcpPct;                     // gross-up do DIFAL/FCP cobrados em acréscimo
-      if (divisor <= 0) throw new Error('DIFAL + FCP ≥ 100%: gross-up impossível.');
-      valorOperacao = (valorProdutos + ipiVenda) / divisor;
     }
     // Base do ICMS: consumidor final (não contribuinte) → IPI integra a base; contribuinte que revende/industrializa → IPI fora
     var baseICMS = contribuinte ? valorProdutos : valorOperacao;
@@ -556,6 +642,6 @@
     return out;
   }
 
-  root.GM_CALC = { calcular: calcular, calcularRevenda: calcularRevenda, dreImportacao: dreImportacao, custoImportacao: custoImportacao, taxaCartao: taxaCartao, booleano: booleano,
+  root.GM_CALC = { calcular: calcular, calcularRevenda: calcularRevenda, dreImportacao: dreImportacao, aliquotaInterestadual: aliquotaInterestadual, derivarDifal: derivarDifal, migrarConfig: migrarConfig, EMPRESA_UF: EMPRESA_UF, custoImportacao: custoImportacao, taxaCartao: taxaCartao, booleano: booleano,
     findProduto: findProduto, validarConfig: validarConfig, fmtBRL: fmtBRL, UFS: UFS };
 })(typeof module !== 'undefined' ? module.exports : window);
