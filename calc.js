@@ -96,6 +96,8 @@
     }
     if (versaoSalva < 2) corrigeInterna('MG', 0.11, 0.18);
     if (versaoSalva < 3) { corrigeInterna('PR', 0.19, 0.195); corrigeInterna('RS', 0.18, 0.17); corrigeInterna('MT', 0.19, 0.17); }
+    // v4: presumido passa a incluir o adicional de IRPJ (15% → 25%), mesma premissa do lucro real (34%). Ajuste manual diferente de 15% é preservado.
+    if (versaoSalva < 4 && isObj(out.tributos) && typeof out.tributos.irpj === 'number' && Math.abs(out.tributos.irpj - 0.15) < 1e-9) out.tributos.irpj = 0.25;
     out.versao = padrao.versao;
     if (isObj(out.revenda)) out.revenda.empresaUF = EMPRESA_UF;
     out.interestadual = 0.04;                                              // Res. SF 13/2012 — não é configurável
@@ -197,8 +199,26 @@
 
     var tb = cfg.tributos;
     if (!isObj(tb)) erros.push('Tributos sobre o lucro ausentes.');
-    else ['irpjCsllReal', 'presumidoBaseIRPJ', 'presumidoBaseCSLL', 'irpj', 'csll', 'pisCumulativo', 'cofinsCumulativo']
-      .forEach(function (f) { tenta(function () { fracao(tb[f], 'tributos.' + f); }); });
+    else {
+      ['irpjCsllReal', 'presumidoBaseIRPJ', 'presumidoBaseCSLL', 'irpj', 'csll', 'pisCumulativo', 'cofinsCumulativo']
+        .forEach(function (f) { tenta(function () { fracao(tb[f], 'tributos.' + f); }); });
+      if (tb.lc224 !== undefined && typeof tb.lc224 !== 'boolean') erros.push('tributos.lc224 deve ser verdadeiro/falso.');
+    }
+    if (cfg.empresa !== undefined) {
+      if (!isObj(cfg.empresa)) erros.push('Dados da empresa inválidos.');
+      else ['razaoSocial', 'cnpj', 'endereco', 'telefone', 'email'].forEach(function (f) {
+        if (cfg.empresa[f] !== undefined && typeof cfg.empresa[f] !== 'string') erros.push('empresa.' + f + ' deve ser texto.');
+      });
+    }
+    if (cfg.proposta !== undefined) {
+      if (!isObj(cfg.proposta)) erros.push('Configuração da proposta inválida.');
+      else {
+        tenta(function () { inteiro(cfg.proposta.validadeDias, 'proposta.validadeDias', 0, 365); });
+        ['prazoEntrega', 'observacoes'].forEach(function (f) {
+          if (cfg.proposta[f] !== undefined && typeof cfg.proposta[f] !== 'string') erros.push('proposta.' + f + ' deve ser texto.');
+        });
+      }
+    }
 
     if (cfg.interestadual !== undefined && Math.abs(cfg.interestadual - 0.04) > 1e-12) erros.push('interestadual deve ser 0,04 (Res. SF 13/2012).');
     if (!isObj(cfg.difal) || Object.keys(cfg.difal).length === 0) erros.push('Tabela DIFAL ausente.');
@@ -539,7 +559,7 @@
       var despesas = frete + valorTaxaCartao;
       var lucroOperacional = lucroBruto - despesas;
       var irpjCsll = presumido
-        ? receitaSemIPI * (fracao(tb.presumidoBaseIRPJ, 'base IRPJ') * fracao(tb.irpj, 'IRPJ') + fracao(tb.presumidoBaseCSLL, 'base CSLL') * fracao(tb.csll, 'CSLL'))
+        ? receitaSemIPI * aliquotaPresumido(tb)
         : Math.max(0, lucroOperacional) * fracao(tb.irpjCsllReal, 'IRPJ/CSLL real');
       var lucroLiquido = lucroOperacional - irpjCsll;
       return { regime: regime, receitaBruta: receitaBruta, ipi: ipiVenda, icms: icmsDebito, difalFcp: difal + fcp, pisCofins: pisCof,
@@ -588,34 +608,88 @@
   }
 
   /* -------------------------------------------------------------------
+   * IRPJ/CSLL do lucro presumido (estimativa gerencial): base 8% (IRPJ) e 12% (CSLL) sobre a receita,
+   * alíquotas 25% (15% + adicional de 10% — mesma premissa do lucro real, empresa acima da faixa) e 9%.
+   * LC 224/2025: +10% nos percentuais de presunção sobre a receita anual acima de R$ 5 mi — parâmetro
+   * tributos.lc224 (padrão false; premissa marginal: a receita simulada está na parcela excedente).
+   * ----------------------------------------------------------------- */
+  function aliquotaPresumido(tb) {
+    var f = tb && tb.lc224 === true ? 1.1 : 1;
+    return fracao(tb.presumidoBaseIRPJ, 'base IRPJ') * f * fracao(tb.irpj, 'IRPJ') + fracao(tb.presumidoBaseCSLL, 'base CSLL') * f * fracao(tb.csll, 'CSLL');
+  }
+
+  /* -------------------------------------------------------------------
+   * Importação direta com FCP (set/2026) — envelope sobre calcular(), que fica intacta.
+   * A tabela DIFAL da planilha é "interna − 4%" e não soma o FCP do estado de destino; o regime especial
+   * da MaisGlass não afasta o FCP (decisão do dono, 18/09/2026). Regras, espelhando a calc 2:
+   *   FCP% = config.revenda.fcp[uf] para consumidor final fora de MG; null = não confirmado → 0% + aviso (não bloqueia:
+   *          a planilha nunca bloqueou e 25 UFs ainda estão sem FCP cadastrado)
+   *   FCP  = B15 × FCP% (mesma base do DIFAL), cobrado a mais do cliente como o DIFAL → preço final = B18 + FCP
+   *   FCP fica na base do PIS/COFINS (SC Cosit 61/2024): pis += FCP × 1,65%; cofins += FCP × 7,6%
+   *   custo total += FCP + ΔPIS + ΔCOFINS; lucro = preço final − custo total
+   * ----------------------------------------------------------------- */
+  function calcularImportacao(config, inputs) {
+    var r = calcular(config, inputs);
+    var out = {}; Object.keys(r).forEach(function (k) { out[k] = r[k]; });
+    out.notas = r.notas.slice();
+    var qtd = positivo(inputs.quantidade, 'quantidade');
+    var uf = inputs.uf, contribuinte = !!inputs.contribuinte;
+    var fcpPct = 0, fcpConfirmado = true, avisos = [];
+    if (!contribuinte && uf !== EMPRESA_UF) {
+      var tab = isObj(config.revenda) ? config.revenda.fcp : null;
+      var v = has(tab, uf) ? tab[uf] : null;
+      if (v === null || v === undefined) {
+        fcpConfirmado = false;
+        avisos.push('FCP de ' + uf + ' não confirmado na tabela (Configurações → FCP por UF): calculado com 0% — confirme com a contadoria.');
+      } else fcpPct = fracao(v, 'FCP ' + uf);
+    }
+    var s = config.saida || {};
+    var fcp = r.precoComTaxa * fcpPct;
+    var dPis = fcp * fracao(s.pis, 'PIS'), dCofins = fcp * fracao(s.cofins, 'COFINS');
+    out.fcpPct = fcpPct; out.fcp = fcp; out.fcpConfirmado = fcpConfirmado;
+    out.pis = r.pis + dPis; out.cofins = r.cofins + dCofins;
+    out.precoFinal = r.precoFinal + fcp;
+    out.custoTotal = r.custoTotal + fcp + dPis + dCofins;
+    out.lucro = out.precoFinal - out.custoTotal;
+    out.markup = r.custoSemImposto > 0 ? out.lucro / r.custoSemImposto : 0;
+    out.precoVendaM2 = out.precoFinal / qtd;
+    out.quantidade = qtd;
+    out.avisos = avisos;
+    if (fcp > 0) out.notas.push('FCP ' + Math.round(fcpPct * 1000) / 10 + '% de ' + uf + ' (' + fmtBRL(fcp) + ') cobrado do cliente junto com o DIFAL — não constava da planilha; incluído em set/2026.');
+    out.notas.push('IPI não destacado na venda (regime da planilha) — pendente de confirmação com a contadoria: importador é equiparado a industrial (RIPI art. 9º, I).');
+    return checarFinito(out);
+  }
+
+  /* -------------------------------------------------------------------
    * DRE da importação direta (estimativa gerencial) — calculada A PARTIR do
-   * resultado de calcular(); não altera nenhuma fórmula da calc 1.
-   *   Receita bruta = preço final ao cliente (B18, DIFAL incluso)
-   *   Deduções      = DIFAL + ICMS efetivo + PIS/COFINS líquidos (débito − crédito da importação) [lucro real]
-   *                   DIFAL + ICMS efetivo + PIS/COFINS cumulativos 3,65% sem crédito            [presumido]
+   * resultado de calcularImportacao() (ou de calcular(), sem FCP); não altera nenhuma fórmula da calc 1.
+   *   Receita bruta = preço final ao cliente (B18 + FCP)
+   *   Deduções      = DIFAL + FCP + ICMS efetivo + PIS/COFINS líquidos (débito − crédito da importação) [lucro real]
+   *                   DIFAL + FCP + ICMS efetivo + PIS/COFINS cumulativos 3,65% sem crédito            [presumido]
    *   CMV           = custo do vidro (chão de fábrica + despesas; PIS/COFINS da importação já dentro)
    *   Despesas      = frete + taxa do cartão  →  lucro operacional = lucro da calc 1 (mesmo número)
    * ----------------------------------------------------------------- */
   function dreImportacao(config, r) {
     if (!isObj(config) || !isObj(r)) throw new Error('Resultado inválido para a DRE.');
     var tb = config.tributos || {};
-    var basePisCofins = r.precoComTaxa - r.frete - r.icms;          // mesma base da calc 1 (F13/F14)
+    var fcp = isFin(r.fcp) ? r.fcp : 0;
+    var basePisCofins = r.precoComTaxa + fcp - r.frete - r.icms;    // mesma base da calc 1 (F13/F14), com o FCP dentro
     var receitaBruta = r.precoFinal;
     function dre(regime) {
       var presumido = regime === 'presumido';
       var pisCof = presumido ? basePisCofins * (fracao(tb.pisCumulativo, 'PIS cumulativo') + fracao(tb.cofinsCumulativo, 'COFINS cumulativo'))
                              : r.pis + r.cofins;                     // líquidos dos créditos da importação
-      var deducoes = r.difal + r.icms + pisCof;
+      var deducoes = r.difal + fcp + r.icms + pisCof;
       var receitaLiquida = receitaBruta - deducoes;
       var cmv = r.custoSemImposto;
       var lucroBruto = receitaLiquida - cmv;
       var despesas = r.frete + r.valorTaxaCartao;
       var lucroOperacional = lucroBruto - despesas;
       var irpjCsll = presumido
-        ? receitaBruta * (fracao(tb.presumidoBaseIRPJ, 'base IRPJ') * fracao(tb.irpj, 'IRPJ') + fracao(tb.presumidoBaseCSLL, 'base CSLL') * fracao(tb.csll, 'CSLL'))
+        ? receitaBruta * aliquotaPresumido(tb)
         : Math.max(0, lucroOperacional) * fracao(tb.irpjCsllReal, 'IRPJ/CSLL real');
       var lucroLiquido = lucroOperacional - irpjCsll;
-      return checarFinito({ regime: regime, receitaBruta: receitaBruta, difal: r.difal, icms: r.icms, pisCofins: pisCof,
+      return checarFinito({ regime: regime, receitaBruta: receitaBruta, ipi: 0, difal: r.difal, fcp: fcp, difalFcp: r.difal + fcp, icms: r.icms, pisCofins: pisCof,
         deducoes: deducoes, receitaLiquida: receitaLiquida, cmv: cmv, lucroBruto: lucroBruto, frete: r.frete, cartao: r.valorTaxaCartao,
         lucroOperacional: lucroOperacional, irpjCsll: irpjCsll, lucroLiquido: lucroLiquido,
         margemLiquida: receitaLiquida > 0 ? lucroLiquido / receitaLiquida : 0,
@@ -642,6 +716,6 @@
     return out;
   }
 
-  root.GM_CALC = { calcular: calcular, calcularRevenda: calcularRevenda, dreImportacao: dreImportacao, aliquotaInterestadual: aliquotaInterestadual, derivarDifal: derivarDifal, migrarConfig: migrarConfig, EMPRESA_UF: EMPRESA_UF, custoImportacao: custoImportacao, taxaCartao: taxaCartao, booleano: booleano,
+  root.GM_CALC = { calcular: calcular, calcularImportacao: calcularImportacao, calcularRevenda: calcularRevenda, dreImportacao: dreImportacao, aliquotaPresumido: aliquotaPresumido, aliquotaInterestadual: aliquotaInterestadual, derivarDifal: derivarDifal, migrarConfig: migrarConfig, EMPRESA_UF: EMPRESA_UF, custoImportacao: custoImportacao, taxaCartao: taxaCartao, booleano: booleano,
     findProduto: findProduto, validarConfig: validarConfig, fmtBRL: fmtBRL, UFS: UFS };
 })(typeof module !== 'undefined' ? module.exports : window);

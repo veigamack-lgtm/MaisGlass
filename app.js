@@ -140,11 +140,12 @@
   }
 
   /* ---------------- abas ---------------- */
-  var ABAS = ['home', 'calc', 'revenda', 'nacional', 'config'];
+  var ABAS = ['home', 'calc', 'revenda', 'nacional', 'orcamentos', 'config'];
   var abaAtual = 'home';
   function mostrarAba(nome) {
     if (ABAS.indexOf(nome) < 0) nome = 'home';
     if (abaAtual === 'config' && nome !== 'config' && draft) lerCamposSimples(); // guarda o que foi digitado
+    if (abaAtual === 'orcamentos' && nome !== 'orcamentos') concluirSalvarPendente();   // não perde edição pendente
     abaAtual = nome;
     fecharAjuda();
     document.querySelectorAll('nav.tabs button').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === nome); });
@@ -152,6 +153,8 @@
     try { sessionStorage.setItem('glassmais.aba', nome); } catch (e) { /* ignore */ }
     if (OPS[nome]) recalcularRevenda(OPS[nome]);
     if (nome === 'config') { if (!draft) draft = clone(config); renderConfig(); }
+    if (nome === 'orcamentos') { if (orc) { renderCabecalhoOrc(); renderOrc(); } else renderListaOrc(); }
+    if (ORIGEM_TAB && (nome === 'calc' || OPS[nome])) atualizarBotoesAdd();
   }
 
   /* Cabeçalho: dólar e frete internacional em uso (para o usuário não esquecer o frete na conta) */
@@ -202,9 +205,9 @@
   var AJUDA = {
     imp: {
       contribuinte: {
-        oque: 'Se o cliente é contribuinte do ICMS (tem Inscrição Estadual e revende ou industrializa — vidraçaria, serralheria, indústria) ou não (construtora, consumidor final, pessoa física, órgão público).',
-        muda: 'Não contribuinte fora de MG: o DIFAL da UF de destino (alíquota interna − 4%) é somado ao preço, por cima do preço + taxa do cartão. Contribuinte: DIFAL zero — o cliente apura o ICMS dele. Dentro de MG não há DIFAL em nenhum dos casos.',
-        dica: 'Construtora e consumidor final = Não contribuinte. Só marque Contribuinte se o cliente tiver IE ativa (confira no Sintegra/SEFAZ) e a mercadoria for para revenda ou industrialização.'
+        oque: 'Consumidor final não contribuinte (construtora, pessoa física, órgão público, empresa sem IE) ou contribuinte do ICMS que compra para revender ou industrializar (vidraçaria, serralheria, indústria com IE).',
+        muda: 'Consumidor final fora de MG: DIFAL da UF de destino (alíquota interna − 4%) + FCP da UF (RJ 2%) somados ao preço, por cima do preço + taxa do cartão. Contribuinte que revende/industrializa: DIFAL e FCP zero — o cliente apura o ICMS dele. Dentro de MG não há DIFAL/FCP.',
+        dica: 'Construtora = consumidor final, mesmo com CNPJ. Contribuinte que compra para uso próprio ou ativo (ex.: vidraçaria montando a própria loja) não é coberto: o DIFAL é dele, mas o IPI entra na base — fale com a contadoria.'
       },
       produto: {
         oque: 'Vidro do cadastro (Configurações → Produtos): custo FOB em US$/m², m² por container e classe fiscal (NCM, II, IPI, PIS/COFINS).',
@@ -248,8 +251,8 @@
       },
       uf: {
         oque: 'Estado do cliente (destino da mercadoria).',
-        muda: 'Define o ICMS da venda pelo regime especial: MG = 14% efetivo (18% − 4% de crédito); qualquer outra UF = 1,5%. Para não contribuinte fora de MG soma o DIFAL da UF (alíquota interna − 4%; ex.: RJ 16%, SP 14%, ES 13%). A tabela está em Configurações → Alíquotas internas por UF.',
-        dica: 'Venda para MG não tem DIFAL, mas o ICMS é maior (14%); para fora de MG o ICMS é 1,5%, mas o não contribuinte paga DIFAL. Confira a alíquota interna da UF na tabela antes de mandar a proposta.'
+        muda: 'Define o ICMS da venda pelo regime especial: MG = 14% efetivo (18% − 4% de crédito); qualquer outra UF = 1,5%. Para consumidor final fora de MG soma o DIFAL da UF (alíquota interna − 4%; ex.: RJ 16%, SP 14%, ES 13%) e o FCP da UF (RJ 2%; UF sem FCP confirmado calcula com 0% e avisa). Tabelas em Configurações.',
+        dica: 'Venda para MG não tem DIFAL/FCP, mas o ICMS é maior (14%); para fora de MG o ICMS é 1,5%, mas o consumidor final paga DIFAL + FCP. Se a UF aparecer "FCP não confirmado", peça o valor à contadoria e cadastre em Configurações.'
       }
     },
     rev: {
@@ -294,9 +297,9 @@
         dica: 'Mantenha "Sim" quando o vidro entra no processo e sai com IPI destacado. "Não" só se a contadoria não escriturar o crédito (ex.: material de uso e consumo).'
       },
       contribuinte: {
-        oque: 'Se o cliente é contribuinte do ICMS (tem IE e revende ou industrializa) ou consumidor final não contribuinte (construtora, pessoa física, órgão público, empresa sem IE).',
-        muda: 'Não contribuinte: o IPI entra na base do ICMS (LC 87/96 art. 13 §2º) e, fora de MG, há DIFAL (interna do destino − interestadual) + FCP a recolher para a UF do cliente. Contribuinte: IPI fora da base, sem DIFAL/FCP (o cliente apura o ICMS dele).',
-        dica: 'Construtora = Não contribuinte, mesmo com CNPJ (é consumidora final). Contribuinte só com IE ativa — confira no Sintegra/SEFAZ do estado.'
+        oque: 'Consumidor final não contribuinte (construtora, pessoa física, órgão público, empresa sem IE) ou contribuinte do ICMS que compra para revender ou industrializar (com IE).',
+        muda: 'Consumidor final: o IPI entra na base do ICMS (LC 87/96 art. 13 §2º) e, fora de MG, há DIFAL (interna do destino − interestadual) + FCP a recolher para a UF do cliente. Contribuinte que revende/industrializa: IPI fora da base, sem DIFAL/FCP (o cliente apura o ICMS dele).',
+        dica: 'Construtora = consumidor final, mesmo com CNPJ. Contribuinte comprando para uso próprio ou ativo não é coberto (o DIFAL é dele, mas o IPI entra na base do ICMS) — fale com a contadoria.'
       },
       clienteUF: {
         oque: 'Estado do cliente (destino). A venda parte sempre de MG.',
@@ -370,13 +373,30 @@
         muda: 'ICMS débito = base × alíquota; DIFAL = base × (interna do destino − esta alíquota). Sugestão: 12%, ou 7% quando o destino é Norte/Nordeste/Centro-Oeste ou ES (Res. SF 22/1989). Venda dentro de MG ignora este campo e usa 18%.',
         dica: 'O valor sugerido cobre a regra geral; só altere se a contadoria indicar outro enquadramento (benefício fiscal do destino, por exemplo).'
       }
+    },
+    orc: {
+      nome: { oque: 'Nome do cliente ou da obra. Aparece na lista de orçamentos e no cabeçalho da proposta impressa.', muda: 'Só identificação — não altera nenhum cálculo.', dica: 'Use o nome pelo qual você procura o cliente depois (ex.: "Construtora Horizonte — Ed. Solar").' },
+      contato: { oque: 'Pessoa de contato, telefone ou e-mail do cliente (opcional).', muda: 'Só aparece na proposta impressa.', dica: 'Coloque quem aprova o orçamento do lado do cliente.' },
+      uf: { oque: 'Estado onde a mercadoria é entregue e faturada. Vale para TODOS os itens do orçamento (um orçamento = um cliente, um destino).', muda: 'Define DIFAL, FCP e o ICMS de cada item: em MG venda interna (14% efetivo na importação direta; 18% nas demais), fora de MG interestadual + DIFAL/FCP para consumidor final. Mudar com itens já adicionados recalcula todos (o app mostra a diferença e pede confirmação).', dica: 'Se a entrega for em UF diferente do faturamento, o DIFAL é da UF de entrega — cenário não coberto na v1; use a UF de entrega e confirme com a contadoria.' },
+      destinatario: { oque: 'Consumidor final não contribuinte (construtora, pessoa física, órgão público, empresa sem IE) ou contribuinte do ICMS que compra para revender ou industrializar (com IE).', muda: 'Consumidor final: DIFAL + FCP fora de MG e IPI na base do ICMS. Contribuinte que revende/industrializa: sem DIFAL/FCP, IPI fora da base (revenda/nacional). Vale para todos os itens; mudar recalcula.', dica: 'Construtora = consumidor final, mesmo com CNPJ. Contribuinte comprando para uso próprio/ativo não é coberto — fale com a contadoria.' },
+      pagamento: { oque: 'À vista (PIX, boleto, transferência) ou parcelado no cartão. Vale para todos os itens.', muda: 'Parcelado acrescenta a taxa do cartão (MDR + 1,5% + 0,75% por parcela) ao valor pago em cada item e recalcula tudo.', dica: 'Simule à vista e parcelado e compare o "Total ao cliente" antes de fechar.' },
+      bandeira: { oque: 'Bandeira do cartão quando o pagamento é parcelado.', muda: 'Muda o MDR aplicado em todos os itens.', dica: 'Visa/Master têm as menores taxas; Amex e Hipercard as maiores.' },
+      parcelas: { oque: 'Número de parcelas (1 a 12) quando o pagamento é parcelado.', muda: 'Cada parcela soma 0,75% à taxa e muda a faixa do MDR; recalcula todos os itens.', dica: 'Mostre ao cliente a diferença de total entre 1x, 3x e 6x.' },
+      validade: { oque: 'Por quantos dias a proposta vale.', muda: 'Só aparece na proposta impressa.', dica: 'Com dólar e frete oscilando, 7 a 15 dias é prudente; ao renovar, use "Recalcular" e uma nova revisão.' },
+      prazo: { oque: 'Prazo de entrega combinado (texto livre).', muda: 'Só aparece na proposta impressa.', dica: 'Conte a partir da aprovação ou do pagamento do sinal — deixe isso escrito.' },
+      dataPrevista: { oque: 'Data prevista da operação (opcional, informativa).', muda: 'Nada no cálculo. Serve para lembrar a vigência das regras (alíquotas, reforma tributária) quando a venda é para meses à frente.', dica: 'Preencha em orçamentos de obra longa; ao chegar a data, recalcule.' },
+      inclusoFrete: { oque: 'O que a proposta declara como incluso no preço (frete, instalação, outros).', muda: 'Só o texto da proposta — não altera o cálculo. O custo do frete/instalação você lança em "Custos internos".', dica: 'Marque só o que está mesmo dentro do preço; o que for cobrado à parte fica de fora.' },
+      inclusoTexto: { oque: 'Outras inclusões em texto livre (ex.: içamento, vedação).', muda: 'Só a proposta.', dica: 'Liste o que evita discussão na entrega.' },
+      observacoes: { oque: 'Observações da proposta (condições comerciais, garantia, exclusões).', muda: 'Só a proposta; o padrão vem de Configurações → Padrões da proposta.', dica: 'Escreva o que não está incluso (ex.: "não inclui ART, andaime, retirada de vidros antigos").' },
+      status: { oque: 'Etapa do orçamento: rascunho, enviado ao cliente, aprovado ou perdido.', muda: 'Enviado e aprovado travam cabeçalho, itens e custos (preserva a versão enviada e fixa os dados da empresa na proposta). Para alterar, "Nova revisão" cria a rev. seguinte como rascunho.', dica: 'Marque "Enviado" no momento em que mandar o PDF ao cliente.' }
     }
   };
   var helpBox = null, helpBtnAtivo = null;
   function textoAjuda(btn) {
     var sec = btn.closest('section'), tab = sec ? sec.id : '';
-    var op = tab === 'tab-calc' ? 'imp' : (tab === 'tab-nacional' ? 'nac' : 'rev');
+    var op = tab === 'tab-calc' ? 'imp' : (tab === 'tab-nacional' ? 'nac' : (tab === 'tab-orcamentos' ? 'orc' : 'rev'));
     var chave = btn.getAttribute('data-help');
+    if (op === 'orc') return AJUDA.orc[chave] || null;
     return (op === 'nac' && AJUDA.nac[chave]) || (op === 'imp' ? AJUDA.imp[chave] : AJUDA.rev[chave]) || null;
   }
   function tituloCampo(label) {
@@ -408,11 +428,12 @@
   }
   /* Insere o botão "?" em cada campo editável das abas de cálculo (antes de clonar a aba nacional, que herda os botões) */
   function montarAjuda() {
-    document.querySelectorAll('#tab-calc .field, #tab-revenda .field').forEach(function (f) {
+    document.querySelectorAll('#tab-calc .field, #tab-revenda .field, #tab-orcamentos .field').forEach(function (f) {
       var ctl = f.querySelector('input[id], select[id]'), label = f.querySelector('label');
       if (!ctl || !label) return;
-      var chave = ctl.id.replace(/^(in|r)-/, '');
-      if (!AJUDA.imp[chave] && !AJUDA.rev[chave]) return;
+      var chave = ctl.id.replace(/^(in|r|o)-/, '');
+      var orcTab = !!f.closest('#tab-orcamentos');
+      if (orcTab ? !AJUDA.orc[chave] : (!AJUDA.imp[chave] && !AJUDA.rev[chave])) return;
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'help'; b.textContent = '?';
       b.setAttribute('data-help', chave); b.setAttribute('aria-expanded', 'false');
@@ -618,13 +639,13 @@
     ['(−) Frete', 'frete', 'sub'],
     ['(−) Taxa do cartão', 'cartao', 'sub'],
     ['= Lucro operacional (antes de IRPJ/CSLL)', 'lucroOperacional', 'total'],
-    ['(−) IRPJ + CSLL', 'irpjCsll'],
+    ['(−) IRPJ + CSLL (estimativa: 34% marginal | presumido 25%+9% sobre 8%/12%)', 'irpjCsll'],
     ['= Lucro líquido da operação', 'lucroLiquido', 'final']
   ];
   var DRE_LINHAS_IMPORTACAO = [
     ['Receita bruta (preço final ao cliente)', 'receitaBruta'],
-    ['(−) DIFAL', 'difal', 'sub'],
-    ['(−) ICMS (alíquota efetiva)', 'icms', 'sub'],
+    ['(−) DIFAL + FCP', 'difalFcp', 'sub'],
+    ['(−) ICMS (alíquota efetiva do regime especial)', 'icms', 'sub'],
     ['(−) PIS/COFINS (real: líquidos dos créditos da importação)', 'pisCofins', 'sub'],
     ['= Receita líquida', 'receitaLiquida', 'total'],
     ['(−) CMV (custo do vidro: importação + despesas)', 'cmv'],
@@ -632,7 +653,7 @@
     ['(−) Frete', 'frete', 'sub'],
     ['(−) Taxa do cartão', 'cartao', 'sub'],
     ['= Lucro operacional (= "Lucro" da planilha)', 'lucroOperacional', 'total'],
-    ['(−) IRPJ + CSLL', 'irpjCsll'],
+    ['(−) IRPJ + CSLL (estimativa: 34% marginal | presumido 25%+9% sobre 8%/12%)', 'irpjCsll'],
     ['= Lucro líquido da operação', 'lucroLiquido', 'final']
   ];
   function renderDre(a, b, tableId, linhas, rotuloTributos) {
@@ -646,14 +667,14 @@
     t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: 'DRE da operação (estimativa gerencial)' }), el('th', { text: 'Lucro real (atual)' }), el('th', { text: 'Lucro presumido (simulação)' })])]));
     var tb = el('tbody');
     (linhas || DRE_LINHAS_REVENDA).forEach(function (l) { tb.appendChild(row(l[0], l[1], l[2])); });
-    tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: 'Margem líquida (sobre a receita líquida)' }), el('td', { text: pct(a.margemLiquida, 1) }), el('td', { text: pct(b.margemLiquida, 1) })]));
-    tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: 'Lucro líquido sobre o valor pago pelo cliente' }), el('td', { text: pct(a.margemSobreValorPago, 1) }), el('td', { text: pct(b.margemSobreValorPago, 1) })]));
+    tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: 'Margem líquida (sobre a receita líquida)' }), el('td', { text: pctNa(a.margemLiquida) }), el('td', { text: pctNa(b.margemLiquida) })]));
+    tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: 'Lucro líquido sobre o valor pago pelo cliente' }), el('td', { text: pctNa(a.margemSobreValorPago) }), el('td', { text: pctNa(b.margemSobreValorPago) })]));
     tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: rotuloTributos || 'Tributos totais líquidos (ICMS, IPI, PIS/COFINS, DIFAL/FCP, IRPJ/CSLL)' }), el('td', { text: brl(a.tributosTotais) }), el('td', { text: brl(b.tributosTotais) })]));
     t.appendChild(tb);
   }
   function renderHeroDre(prefix, dR, dP) {
     $(prefix + 'liqReal').textContent = brl(dR.lucroLiquido);
-    $(prefix + 'liqRealSub').textContent = pct(dR.margemSobreValorPago, 1) + ' do valor pago · IRPJ/CSLL ' + brl(dR.irpjCsll);
+    $(prefix + 'liqRealSub').textContent = pctNa(dR.margemSobreValorPago) + ' do valor pago · IRPJ/CSLL ' + brl(dR.irpjCsll);
     $(prefix + 'liqPres').textContent = brl(dP.lucroLiquido);
     var delta = dP.lucroLiquido - dR.lucroLiquido;
     $(prefix + 'liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(dP.irpjCsll);
@@ -708,7 +729,7 @@
     $('in-bandeira').disabled = !parcelado;
     $('in-parcelas').disabled = !parcelado;
     var r;
-    try { r = CALC.calcular(config, inp); }
+    try { r = CALC.calcularImportacao(config, inp); }   // calcular() da planilha + FCP (set/2026); ver calc.js
     catch (e) { limparResultados(e.message); return; }
 
     atualizarCabecalho();
@@ -721,7 +742,9 @@
     $('out-precoComTaxa').textContent = brl(r.precoComTaxa);
     $('out-difalPct').textContent = pct(r.difalPct, 1);
     $('out-difal').textContent = brl(r.difal);
-    $('out-difal2').textContent = brl(r.difal);
+    $('out-fcpPct').textContent = pct(r.fcpPct, 1) + (r.fcpConfirmado ? '' : ' (não confirmado)');
+    $('out-fcp').textContent = brl(r.fcp);
+    $('out-difal2').textContent = brl(r.difal + r.fcp);
 
     $('out-custoM2').textContent = brl(r.custoMateriaPrimaM2);
     $('out-vendaM2').textContent = brl(r.precoVendaM2);
@@ -740,6 +763,7 @@
     $('row-lucro').classList.toggle('neg', r.lucro < 0);
 
     $('out-notas').innerHTML = '';
+    (r.avisos || []).forEach(function (n) { $('out-notas').appendChild(el('p', { class: 'warn', text: n })); });
     r.notas.forEach(function (n) { $('out-notas').appendChild(el('p', { text: n })); });
 
     renderImportacao(r.importacao);
@@ -760,7 +784,7 @@
     renderGraficoGenerico('viz', r.precoFinal, r.custoTotal, r.lucro, [
       { nome: 'Custo do vidro', sub: 'importação + despesas, sem imposto', valor: r.custoSemImposto },
       { nome: 'Impostos', sub: 'PIS ' + brl(r.pis) + ' · COFINS ' + brl(r.cofins) + ' · ICMS ' + brl(r.icms), valor: impostos },
-      { nome: 'DIFAL', sub: r.difalPct > 0 ? pct(r.difalPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal },
+      { nome: 'DIFAL + FCP', sub: r.difalPct + r.fcpPct > 0 ? pct(r.difalPct, 1) + ' + ' + pct(r.fcpPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal + r.fcp },
       { nome: 'Frete', sub: '', valor: r.frete },
       { nome: 'Taxa do cartão', sub: r.taxaCartao > 0 ? pct(r.taxaCartao) : 'à vista', valor: r.valorTaxaCartao },
       { nome: 'Lucro', sub: 'markup ' + pct(r.markup, 1), valor: r.lucro }
@@ -1023,6 +1047,759 @@
     status('Padrão restaurado.', 'ok');
   }
 
+  /* =====================================================================
+   * Módulo Orçamentos (interface) — motor em orcamento.js (GM_ORC)
+   * Lista + editor: cabeçalho manda nos itens; itens congelados; premissas e configuração congeladas por
+   * orçamento; custos internos só na DRE; proposta impressa; salvo em localStorage (glassmais.orcamentos.v1).
+   * ===================================================================== */
+  var ORC = window.GM_ORC;
+  var ORC_KEY = 'glassmais.orcamentos.v1';
+  var orcamentos = [];            // lista carregada nesta aba
+  var orc = null;                 // orçamento aberto ("atual") — referência ao objeto da lista
+  var orcTimer = null;
+  var orcGravadoEm = {};          // id → atualizadoEm conhecido por esta aba (detecção de gravação em outra aba)
+  var naoSalvos = {};             // id → objeto alterado nesta aba e ainda NÃO gravado (autosave pendente, gravação falhou ou conflito recusado): preservado na sincronização (parecer nº 4, achado 3)
+  var itemEmEdicao = null;        // { orcId, itemId, origem } após "Carregar na calculadora"
+  var ORIGEM_ROTULO = { importacao: 'Importação', revenda: 'Revenda', nacional: 'Nacional' };
+  var ORIGEM_TAB = { importacao: 'calc', revenda: 'revenda', nacional: 'nacional' };
+  var ORIGEM_CLASSE = { importacao: 'imp', revenda: 'rev', nacional: 'nac' };
+  var TIPO_CUSTO_ROTULO = { transporteProprio: 'Transporte próprio (frota)', freteContratado: 'Frete contratado (terceiros)', instalacao: 'Instalação', comissao: 'Comissão', outros: 'Outros' };
+  var STATUS_ROTULO = { rascunho: 'Rascunho', enviado: 'Enviado', aprovado: 'Aprovado', perdido: 'Perdido' };
+  var DRE_LINHAS_ORCAMENTO = [
+    ['Receita bruta (total pago pelo cliente, todos os itens)', 'receitaBruta'],
+    ['(−) IPI destacado (revenda/nacional; importação direta não destaca — pendente)', 'ipi', 'sub'],
+    ['(−) ICMS próprio: débito (revenda/nacional) · efetivo do regime especial (importação direta)', 'icms', 'sub'],
+    ['(−) DIFAL + FCP', 'difalFcp', 'sub'],
+    ['(−) PIS/COFINS (débitos cheios; créditos vão no CMV)', 'pisCofins', 'sub'],
+    ['= Receita líquida', 'receitaLiquida', 'total'],
+    ['(−) CMV (mercadoria líquida dos créditos)', 'cmv'],
+    ['= Lucro bruto', 'lucroBruto', 'total'],
+    ['(−) Frete cobrado na NF (itens)', 'frete', 'sub'],
+    ['(−) Taxa do cartão (itens)', 'cartao', 'sub'],
+    ['(−) Custos internos do orçamento', 'custosInternos', 'sub'],
+    ['= Lucro operacional (antes de IRPJ/CSLL)', 'lucroOperacional', 'total'],
+    ['(−) IRPJ + CSLL (real: 34% sobre o lucro consolidado · presumido: soma dos itens)', 'irpjCsll'],
+    ['= Lucro líquido do orçamento', 'lucroLiquido', 'final']
+  ];
+
+  function orcStatus(msg, cls) { var s = $('orcStatus'); s.textContent = msg; s.className = 'status ' + (cls || ''); }
+  function orcListaStatus(msg, cls) { var s = $('orcListaStatus'); s.textContent = msg; s.className = 'status ' + (cls || ''); }
+  function dataHora(iso) { try { return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) { return iso || ''; } }
+  function dataCurta(iso) { try { return new Date(iso).toLocaleDateString('pt-BR'); } catch (e) { return iso || ''; } }
+  function orcNome(o) { return (o && o.cliente && o.cliente.nome) ? o.cliente.nome : 'sem nome'; }
+  function orcNumero(o) { return o.id.slice(-6).toUpperCase() + (o.revisao > 1 ? '-r' + o.revisao : ''); }
+  function orcTravado() { return !!orc && ORC.emitido(orc); }   // emitido (enviado/aprovado/perdido após emissão): só nova revisão altera
+  function pctNa(v, dec) { return (v === null || v === undefined || !isFinite(v)) ? 'n/a' : pct(v, dec === undefined ? 1 : dec); }
+  function configDifereDoSnapshot(o) { return JSON.stringify(o.configSnapshot) !== JSON.stringify(config); }
+
+  /* ---------- persistência ----------
+   * Regras (parecer nº 3, achado 2): cada gravação relê o disco e substitui SÓ o orçamento alterado (ou remove só o
+   * excluído); os demais ficam como estão no disco, nunca sobrescritos pela cópia em memória desta aba. Antes de
+   * gravar, o orçamento alterado é comparado com a versão do disco (atualizadoEm conhecido por esta aba) e um
+   * conflito pede confirmação. Depois de gravar, a lista em memória é ressincronizada com o disco. O evento
+   * "storage" avisa quando outra aba grava. Limite conhecido: a leitura-modificação-gravação é síncrona e curta,
+   * mas não há um lock entre abas — duas gravações no mesmo milissegundo ainda podem colidir. */
+  function lerStorageOrc() { try { var raw = localStorage.getItem(ORC_KEY); var l = raw ? JSON.parse(raw) : []; return Array.isArray(l) ? l : []; } catch (e) { return []; } }
+  function normalizarOrcDisco(o) {
+    try { var m = ORC.migrarOrcamento(o); var e = ORC.validarOrcamento(m); if (e.length) { console.warn('Orçamento inválido ignorado', o && o.id, e); return null; } return m; }
+    catch (err) { console.warn('Orçamento ignorado', err); return null; }
+  }
+  /* Reconstrói a lista em memória a partir de uma lista do disco, preservando o objeto do orçamento aberto */
+  function sincronizarListaOrc(disco) {
+    var nova = [], vistos = {};
+    disco.forEach(function (x) {
+      if (!x || !x.id || vistos[x.id]) return; vistos[x.id] = true;
+      if (orc && x.id === orc.id) { nova.push(orc); return; }      // o aberto mantém o atualizadoEm que ESTA aba conhece: é isso que detecta o conflito
+      if (naoSalvos[x.id]) { nova.push(naoSalvos[x.id]); return; } // edição desta aba ainda não gravada nunca é substituída pela versão do disco
+      var m = normalizarOrcDisco(x); if (!m) return;
+      nova.push(m); orcGravadoEm[m.id] = m.atualizadoEm;
+    });
+    if (orc && !vistos[orc.id]) nova.unshift(orc);          // aberto nesta aba, mas ainda não gravado (ou excluído em outra aba: fica em memória até salvar/fechar)
+    Object.keys(naoSalvos).forEach(function (id) { if (!vistos[id] && !(orc && orc.id === id)) nova.unshift(naoSalvos[id]); });   // não salvo que sumiu do disco (excluído em outra aba) continua recuperável
+    orcamentos = nova;
+  }
+  function marcarNaoSalvo(o) { if (o && o.id) naoSalvos[o.id] = o; }
+  function limparNaoSalvo(id) { delete naoSalvos[id]; }
+  function temNaoSalvos() { return Object.keys(naoSalvos).length > 0; }
+  function carregarOrcamentos() { orcamentos = []; orcGravadoEm = {}; sincronizarListaOrc(lerStorageOrc()); }
+  /* Estado "ausente do disco" como alvo de uma decisão confirmada (recriação após exclusão em outra aba) */
+  var AUSENTE = ' ausente';
+  function gravarOrcamentos(oAlterado, excluirId, confirmadoPara) {
+    var disco = lerStorageOrc();
+    if (oAlterado) {
+      // Conflito: a decisão do usuário vale só para o ESTADO do disco que ele viu (a versão de atualizadoEm, ou "ausente").
+      // Enquanto o diálogo fica aberto, outra aba pode gravar — e o navegador só aplica essas gravações ao cache desta aba
+      // quando a thread fica livre. Por isso NENHUMA decisão grava na hora: toda confirmação agenda a gravação para a PRÓXIMA
+      // volta do event loop (agendarGravacaoAdiada), que relê o disco e chama esta função de novo com confirmadoPara = estado
+      // confirmado. Se o estado continua o mesmo, grava sobre a lista relida (os demais ids vêm dela); se mudou, a decisão é
+      // reavaliada com novo diálogo (parecer nº 4, achado 2; parecer nº 6, achado 1). Recusar cancela qualquer gravação
+      // confirmada ainda pendente deste id — a decisão mais recente vence (parecer nº 6, achado 2). A comparação de versão
+      // é de identidade (diferente da conhecida), não de ordem cronológica textual.
+      var noDisco = disco.filter(function (x) { return x && x.id === oAlterado.id; })[0];
+      var base = orcGravadoEm[oAlterado.id];
+      if (noDisco && base && noDisco.atualizadoEm !== base && noDisco.atualizadoEm !== confirmadoPara) {
+        var visto = noDisco.atualizadoEm;
+        if (!confirm('O orçamento "' + orcNome(oAlterado) + '" foi alterado em outra aba do navegador (' + dataHora(visto) + '). Sobrescrever com a versão desta aba?')) {
+          cancelarGravacaoAdiada(oAlterado.id); marcarNaoSalvo(oAlterado);
+          orcStatus('Não salvo — outra aba alterou este orçamento. Recarregue a página para ver a versão dela, ou exporte o JSON para guardar esta.', 'err'); return false;
+        }
+        marcarNaoSalvo(oAlterado);
+        orcStatus('Confirmado — gravando…', '');
+        agendarGravacaoAdiada(oAlterado, excluirId, visto);
+        return false;                                            // ainda não gravado: quem chamou trata como pendente
+      }
+      if (!noDisco && confirmadoPara && confirmadoPara !== AUSENTE) {
+        // A decisão valia para uma versão; entre o diálogo e esta releitura o orçamento sumiu do disco (excluído em outra
+        // aba). Gravar agora recriaria um orçamento que outra aba acabou de excluir — nova decisão, também adiada.
+        if (!confirm('O orçamento "' + orcNome(oAlterado) + '" foi excluído em outra aba enquanto você confirmava. Gravar mesmo assim (ele volta para a lista)?')) {
+          cancelarGravacaoAdiada(oAlterado.id); marcarNaoSalvo(oAlterado);
+          orcStatus('Não salvo — o orçamento foi excluído em outra aba. Ele continua nesta tela; exporte o JSON para guardar.', 'err'); return false;
+        }
+        marcarNaoSalvo(oAlterado);
+        orcStatus('Confirmado — gravando…', '');
+        agendarGravacaoAdiada(oAlterado, excluirId, AUSENTE);
+        return false;
+      }
+      if (noDisco && confirmadoPara && noDisco.atualizadoEm === confirmadoPara) orcGravadoEm[oAlterado.id] = confirmadoPara;   // decisão continua válida
+      oAlterado.atualizadoEm = new Date().toISOString();
+    }
+    var lista = disco.filter(function (x) { return x && x.id && x.id !== excluirId; });
+    if (oAlterado) {
+      var idx = -1; lista.forEach(function (x, i) { if (x.id === oAlterado.id) idx = i; });
+      if (idx >= 0) lista[idx] = oAlterado; else lista.unshift(oAlterado);
+    }
+    var texto;
+    try { texto = JSON.stringify(lista); localStorage.setItem(ORC_KEY, texto); }
+    catch (e) { if (oAlterado) marcarNaoSalvo(oAlterado); orcStatus('Não foi possível salvar (armazenamento cheio ou bloqueado) — exporte o JSON para não perder.', 'err'); return false; }
+    if (oAlterado) { orcGravadoEm[oAlterado.id] = oAlterado.atualizadoEm; limparNaoSalvo(oAlterado.id); cancelarGravacaoAdiada(oAlterado.id); }   // gravação concluída supera qualquer decisão pendente deste id
+    if (excluirId) limparNaoSalvo(excluirId);
+    sincronizarListaOrc(lista);
+    if (texto.length > 4 * 1024 * 1024) orcStatus('Atenção: os orçamentos ocupam ' + Math.round(texto.length / 1024 / 1024 * 10) / 10 + ' MB (limite ≈ 5 MB). Exporte e exclua orçamentos antigos.', 'err');
+    return true;
+  }
+  /* Gravações confirmadas pendentes (adiadas para a próxima volta do event loop), UMA por orçamento: id → { timer, geracao }.
+   * O registro representa a validade da DECISÃO mais recente sobre aquele id: agendar outra gravação do mesmo id cancela a
+   * anterior e avança a geração; recusar um novo diálogo ou excluir o orçamento cancela e invalida a pendente. Ao executar,
+   * o callback confere que ainda é a gravação vigente daquele id e que o objeto continua vivo nesta aba — um callback
+   * superado ou cancelado nunca grava (parecer nº 5, achado 2; parecer nº 6, achado 2). */
+  var gravacoesAdiadas = {};
+  var geracaoGravacao = {};
+  function orcVivo(o) { return !!o && (orcamentos.indexOf(o) >= 0 || orc === o || naoSalvos[o.id] === o); }
+  function agendarGravacaoAdiada(oAlterado, excluirId, visto) {
+    var id = oAlterado.id;
+    cancelarGravacaoAdiada(id);
+    var reg = { geracao: (geracaoGravacao[id] || 0) + 1, timer: null };
+    geracaoGravacao[id] = reg.geracao;
+    reg.timer = setTimeout(function () {
+      if (gravacoesAdiadas[id] !== reg || geracaoGravacao[id] !== reg.geracao) return;   // superada ou cancelada
+      delete gravacoesAdiadas[id];
+      if (!orcVivo(oAlterado)) return;                                                     // objeto já descartado nesta aba (excluído)
+      if (gravarOrcamentos(oAlterado, excluirId, visto)) orcStatus('Salvo às ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + (visto === AUSENTE ? ' (recriado após a exclusão em outra aba).' : ' (sobrescreveu a versão da outra aba).'), 'ok');
+      if (!orc) renderListaOrc();
+    }, 60);
+    gravacoesAdiadas[id] = reg;
+  }
+  function cancelarGravacaoAdiada(id) {
+    var reg = gravacoesAdiadas[id]; if (!reg) return false;
+    clearTimeout(reg.timer); delete gravacoesAdiadas[id];
+    geracaoGravacao[id] = reg.geracao + 1;                                                 // callback já enfileirado vê a geração superada
+    return true;
+  }
+
+  /* Autosave amarrado ao objeto editado: trocar de orçamento ou de tela conclui o pendente antes (parecer nº 3, achado 4) */
+  var orcPendente = null;
+  function agendarSalvarOrc() {
+    if (!orc) return;
+    clearTimeout(orcTimer); orcPendente = orc; marcarNaoSalvo(orc);
+    orcTimer = setTimeout(function () { orcTimer = null; var alvo = orcPendente; orcPendente = null; if (alvo) salvarOrc(alvo); }, 500);
+  }
+  function concluirSalvarPendente() {
+    if (!orcTimer) return true;
+    clearTimeout(orcTimer); orcTimer = null;
+    var alvo = orcPendente; orcPendente = null;
+    return alvo ? salvarOrc(alvo) : true;
+  }
+  function salvarOrc(o) {
+    if (!o) return false;
+    if (o === orc) lerCabecalhoTexto();
+    var erros = ORC.validarOrcamento(o);
+    if (erros.length) { marcarNaoSalvo(o); orcStatus('Não salvo — ' + erros.slice(0, 3).join(' '), 'err'); return false; }
+    if (!gravarOrcamentos(o)) return false;
+    orcStatus('Salvo automaticamente às ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.', 'ok');
+    return true;
+  }
+  function salvarOrcAtual() { clearTimeout(orcTimer); orcTimer = null; orcPendente = null; return salvarOrc(orc); }
+
+  /* ---------- navegação lista ↔ editor ---------- */
+  function novoOrc() {
+    concluirSalvarPendente();
+    var o = ORC.novoOrcamento(config, { nome: '', uf: 'RJ', destinatario: 'consumidorFinal' });
+    orcamentos.unshift(o);
+    var ok = gravarOrcamentos(o);
+    abrirOrc(o.id);
+    if (ok) orcStatus('Novo orçamento criado — preencha o cliente e adicione itens pelas calculadoras.', 'ok');
+    $('o-nome').focus();
+  }
+  function abrirOrc(id) {
+    if (orc && orc.id !== id) concluirSalvarPendente();
+    orc = orcamentos.filter(function (o) { return o.id === id; })[0] || null;
+    if (!orc) { mostrarListaOrc(); return; }
+    try { sessionStorage.setItem('glassmais.orcAtual', id); } catch (e) { /* ignore */ }
+    if (itemEmEdicao && itemEmEdicao.orcId !== id) itemEmEdicao = null;
+    $('orc-lista').classList.add('hidden'); $('orc-editor').classList.remove('hidden');
+    renderCabecalhoOrc(); renderOrc(); atualizarBotoesAdd();
+  }
+  function mostrarListaOrc() {
+    var ok = concluirSalvarPendente();
+    orc = null; itemEmEdicao = null;
+    if (!ok) { try { sessionStorage.removeItem('glassmais.orcAtual'); } catch (e) { /* ignore */ } $('orc-editor').classList.add('hidden'); $('orc-lista').classList.remove('hidden'); renderListaOrc(); atualizarBotoesAdd(); orcListaStatus('A última alteração NÃO foi gravada (veja a mensagem no editor). O orçamento continua nesta aba marcado "não salvo" — abra e tente salvar de novo, ou exporte o JSON.', 'err'); return; }
+    try { sessionStorage.removeItem('glassmais.orcAtual'); } catch (e) { /* ignore */ }
+    $('orc-editor').classList.add('hidden'); $('orc-lista').classList.remove('hidden');
+    renderListaOrc(); atualizarBotoesAdd();
+  }
+  function renderListaOrc() {
+    var wrap = $('orc-tabela'); wrap.innerHTML = '';
+    if (!orcamentos.length) { wrap.appendChild(el('p', { class: 'hint', text: 'Nenhum orçamento ainda. Clique em "Novo orçamento" ou importe um JSON.' })); return; }
+    var linhas = orcamentos.slice().sort(function (a, b) { return (b.atualizadoEm || '').localeCompare(a.atualizadoEm || ''); }).map(function (o) {
+      var total = '—', liq = '—', n = o.itens.length;
+      try { var c = ORC.consolidar(o); total = brl(c.totais.totalCliente); liq = brl(c.real.lucroLiquido); } catch (e) { /* mostra traço */ }
+      var abrir = el('button', { class: 'btn small primary', text: 'Abrir', onclick: function () { abrirOrc(o.id); } });
+      var excluir = el('button', { class: 'btn small danger', text: 'Excluir', onclick: function () { excluirOrc(o.id); } });
+      var nomeCel = el('td', {}, [el('strong', { text: orcNome(o) }), el('small', { text: ' nº ' + orcNumero(o), style: 'color:var(--muted)' })]);
+      if (naoSalvos[o.id]) nomeCel.appendChild(el('span', { class: 'tag st-perdido', text: 'não salvo', style: 'margin-left:6px', title: 'Alteração desta aba ainda não gravada — abra e salve, ou exporte o JSON' }));
+      return el('tr', {}, [
+        nomeCel,
+        el('td', { text: 'rev. ' + o.revisao }),
+        el('td', { text: dataHora(o.atualizadoEm) }),
+        el('td', { text: String(n), style: 'text-align:right' }),
+        el('td', { text: total, style: 'text-align:right;font-variant-numeric:tabular-nums' }),
+        el('td', { text: liq, style: 'text-align:right;font-variant-numeric:tabular-nums' }),
+        el('td', {}, [el('span', { class: 'tag st-' + o.status, text: STATUS_ROTULO[o.status] || o.status })]),
+        el('td', { class: 'acoes' }, [abrir, ' ', excluir])
+      ]);
+    });
+    wrap.appendChild(el('table', { class: 'lista' }, [
+      el('thead', {}, [el('tr', {}, ['Cliente', 'Revisão', 'Atualizado', 'Itens', 'Total ao cliente', 'Lucro líq. (real)', 'Status', ''].map(function (h) { return el('th', { text: h }); }))]),
+      el('tbody', {}, linhas)
+    ]));
+    if (temNaoSalvos()) orcListaStatus('Há orçamento(s) com alteração não gravada nesta aba (marcados "não salvo"): abra e salve, ou exporte o JSON antes de fechar a página.', 'err');
+  }
+
+  /* ---------- cabeçalho ---------- */
+  function preencherSelectsOrc() {
+    var selU = $('o-uf'); var atual = selU.value; selU.innerHTML = '';
+    Object.keys(config.difal).sort().forEach(function (uf) { selU.appendChild(el('option', { value: uf, text: uf })); });
+    if (atual && config.difal[atual]) selU.value = atual;
+    var selB = $('o-bandeira'); var atualB = selB.value; selB.innerHTML = '';
+    Object.keys(config.cartao.mdr).forEach(function (b) { selB.appendChild(el('option', { value: b, text: b })); });
+    if (atualB && config.cartao.mdr[atualB]) selB.value = atualB;
+  }
+  function renderCabecalhoOrc() {
+    preencherSelectsOrc();
+    var c = orc.cliente, cd = orc.condicoes;
+    $('o-nome').value = c.nome || ''; $('o-contato').value = c.contato || '';
+    $('o-uf').value = c.uf; $('o-destinatario').value = c.destinatario;
+    $('o-pagamento').value = cd.pagamento; $('o-bandeira').value = cd.bandeira || 'Visa'; $('o-parcelas').value = cd.parcelas || 1;
+    $('o-validade').value = cd.validadeDias; $('o-prazo').value = cd.prazoEntrega || '';
+    $('o-dataPrevista').value = cd.dataPrevista || '';
+    $('o-inclusoFrete').checked = !!(cd.inclusos && cd.inclusos.frete); $('o-inclusoInstalacao').checked = !!(cd.inclusos && cd.inclusos.instalacao);
+    $('o-inclusoTexto').value = (cd.inclusos && cd.inclusos.texto) || ''; $('o-observacoes').value = cd.observacoes || '';
+    $('o-status').value = orc.status;
+    var parcelado = cd.pagamento === 'Parcelado';
+    $('o-bandeira').disabled = !parcelado; $('o-parcelas').disabled = !parcelado;
+    aplicarTravaOrc();
+  }
+  function aplicarTravaOrc() {
+    var travado = orcTravado();
+    document.querySelectorAll('#orc-cabecalho input, #orc-cabecalho select').forEach(function (i) {
+      if (i.id === 'o-status') return;
+      if (i.id === 'o-bandeira' || i.id === 'o-parcelas') { i.disabled = travado || orc.condicoes.pagamento !== 'Parcelado'; return; }
+      i.disabled = travado;
+    });
+    // status: uma vez emitido nunca volta a rascunho; enviado → aprovado/perdido; aprovado → perdido; perdido é final. Para editar, "Nova revisão"
+    var st = $('o-status');
+    var permitidos = { rascunho: ['rascunho', 'enviado', 'aprovado', 'perdido'], enviado: ['enviado', 'aprovado', 'perdido'], aprovado: ['aprovado', 'perdido'], perdido: ['perdido'] }[orc.status] || ['rascunho'];
+    Array.prototype.forEach.call(st.options, function (op) { op.disabled = permitidos.indexOf(op.value) < 0; });
+    $('orcAddCusto').disabled = travado;
+    $('orcRecalcular').disabled = travado;
+    var banner = $('orc-travado');
+    banner.classList.toggle('hidden', !travado);
+    if (travado) banner.textContent = 'Proposta emitida em ' + dataHora(orc.emitidoEm) + ' (status: ' + STATUS_ROTULO[orc.status].toLowerCase() + (orc.emissaoOrigem && orc.emissaoOrigem.indexOf('migracao') === 0 ? '; marco recuperado na migração — ' + orc.emissaoOrigem.replace(/^migracao:/, '') : '') + '): cabeçalho, itens, custos e dados da empresa ficam congelados para preservar a versão enviada. Para alterar, use "Nova revisão".';
+  }
+  /* campos de texto/condições que não mudam o cálculo */
+  function lerCabecalhoTexto() {
+    orc.cliente.nome = $('o-nome').value.trim(); orc.cliente.contato = $('o-contato').value.trim();
+    var v = parseInt($('o-validade').value, 10); orc.condicoes.validadeDias = isFinite(v) && v >= 0 ? v : 0;
+    orc.condicoes.prazoEntrega = $('o-prazo').value.trim();
+    orc.condicoes.dataPrevista = $('o-dataPrevista').value || null;
+    orc.condicoes.inclusos = { frete: $('o-inclusoFrete').checked, instalacao: $('o-inclusoInstalacao').checked, texto: $('o-inclusoTexto').value.trim() };
+    orc.condicoes.observacoes = $('o-observacoes').value;
+  }
+  /* campos que valem para todos os itens: UF, destinatário, pagamento, bandeira, parcelas → recalcula tudo (atômico) */
+  function lerCabecalhoFiscal() {
+    return { uf: $('o-uf').value, destinatario: $('o-destinatario').value, pagamento: $('o-pagamento').value,
+      bandeira: $('o-bandeira').value || orc.condicoes.bandeira, parcelas: Math.max(1, Math.min(12, parseInt($('o-parcelas').value, 10) || 1)) };
+  }
+  function onCabecalhoFiscal() {
+    var novo = lerCabecalhoFiscal();
+    var atual = ORC.cabecalhoDe(orc);
+    var mudou = JSON.stringify(novo) !== JSON.stringify(atual);
+    if (!mudou) return;
+    if (orc.itens.length) {
+      var recalc;
+      try { recalc = recalcularItens(orc.configSnapshot, novo); }
+      catch (e) { orcStatus('Alteração desfeita: ' + e.message, 'err'); renderCabecalhoOrc(); return; }
+      var antes = ORC.consolidar(orc);
+      var depois = ORC.consolidar(Object.assign({}, orc, { cliente: Object.assign({}, orc.cliente, { uf: novo.uf, destinatario: novo.destinatario }),
+        condicoes: Object.assign({}, orc.condicoes, { pagamento: novo.pagamento, bandeira: novo.bandeira, parcelas: novo.parcelas }), itens: recalc }));
+      var msg = 'Mudar o cabeçalho recalcula os ' + orc.itens.length + ' item(ns):\n' +
+        'Total ao cliente: ' + brl(antes.totais.totalCliente) + ' → ' + brl(depois.totais.totalCliente) + '\n' +
+        'Lucro líquido (real): ' + brl(antes.real.lucroLiquido) + ' → ' + brl(depois.real.lucroLiquido) + '\nAplicar?';
+      if (!confirm(msg)) { renderCabecalhoOrc(); return; }
+      orc.itens = recalc;
+    }
+    orc.cliente.uf = novo.uf; orc.cliente.destinatario = novo.destinatario;
+    orc.condicoes.pagamento = novo.pagamento; orc.condicoes.bandeira = novo.bandeira; orc.condicoes.parcelas = novo.parcelas;
+    renderCabecalhoOrc(); renderOrc(); salvarOrcAtual();
+  }
+  /* recalcula todos os itens com uma configuração e um cabeçalho; lança no primeiro erro (nada é aplicado) */
+  function recalcularItens(cfg, cab) {
+    return orc.itens.map(function (it) {
+      var c;
+      try { c = ORC.calcularItem(cfg, cab, it); }
+      catch (e) { throw new Error('item "' + (it.descricao || ORIGEM_ROTULO[it.origem]) + '": ' + e.message); }
+      return Object.assign({}, it, { inputs: c.inputs, resultado: c.resultado, avisos: c.avisos, calculadoEm: new Date().toISOString() });
+    });
+  }
+  function onStatusOrc() {
+    var novo = $('o-status').value;
+    if (novo === orc.status) return;
+    if (novo !== 'rascunho' && !orc.itens.length && !confirm('O orçamento não tem itens. Marcar como ' + STATUS_ROTULO[novo].toLowerCase() + ' mesmo assim?')) { $('o-status').value = orc.status; return; }
+    if (!ORC.emitido(orc) && novo !== 'rascunho') {
+      // primeira saída do rascunho = emissão: congela data e dados da empresa UMA vez; nunca mais é sobrescrito
+      lerCabecalhoTexto();
+      orc.emitidoEm = new Date().toISOString(); orc.emissaoOrigem = 'app';
+      orc.empresa = clone(config.empresa || orc.empresa);
+    }
+    orc.status = novo;
+    if (novo === 'enviado' && !orc.enviadoEm) orc.enviadoEm = orc.emitidoEm;
+    renderCabecalhoOrc(); renderOrc(); salvarOrcAtual(); atualizarBotoesAdd();
+  }
+
+  /* ---------- itens ---------- */
+  function descricaoPadrao(origem, inputs) {
+    if (origem === 'importacao') return inputs.produto || 'Vidro importado';
+    return origem === 'revenda' ? 'Vidro importado — revenda' : 'Vidro nacional';
+  }
+  function infoAdd(prefix, msg, cls) { var s = $(prefix + 'addOrcInfo'); s.textContent = msg; s.className = 'hint' + (cls ? ' ' + cls : ''); }
+  function atualizarBotoesAdd() {
+    [['in-', 'importacao'], ['r-', 'revenda'], ['n-', 'nacional']].forEach(function (par) {
+      var b = $(par[0] + 'addOrc'), info = $(par[0] + 'addOrcInfo'); if (!b || !info) return;
+      info.innerHTML = ''; info.className = 'hint';
+      if (!orc) { b.disabled = true; b.textContent = '+ Adicionar ao orçamento'; info.textContent = 'Crie ou abra um orçamento na aba Orçamentos para adicionar itens.'; return; }
+      if (orcTravado()) { b.disabled = true; b.textContent = '+ Adicionar ao orçamento'; info.textContent = 'Orçamento "' + orcNome(orc) + '" está ' + STATUS_ROTULO[orc.status].toLowerCase() + ' — crie uma nova revisão para alterar.'; return; }
+      b.disabled = false;
+      var editando = itemEmEdicao && itemEmEdicao.orcId === orc.id && itemEmEdicao.origem === par[1];
+      if (editando) {
+        var it = orc.itens.filter(function (x) { return x.id === itemEmEdicao.itemId; })[0];
+        b.textContent = 'Substituir item "' + (it ? it.descricao : '?') + '" no orçamento';
+        info.appendChild(document.createTextNode('Editando item do orçamento "' + orcNome(orc) + '". '));
+        info.appendChild(el('button', { class: 'btn small', text: 'Adicionar como novo item', onclick: function () { itemEmEdicao = null; atualizarBotoesAdd(); } }));
+        if (itemEmEdicao.icmsSaidaManual === true) info.appendChild(el('small', { class: 'warn', style: 'display:block', text: 'Este item tem ICMS de saída com ajuste manual (' + Math.round((itemEmEdicao.icmsSaidaCarregada || 0) * 1e4) / 100 + '%): ao substituir sem alterar esse campo, o ajuste manual é mantido; se alterar o campo, o item é reclassificado como um item novo.' }));
+      } else {
+        b.textContent = '+ Adicionar ao orçamento: ' + orcNome(orc);
+        info.textContent = 'Cliente em ' + orc.cliente.uf + ' · ' + (orc.cliente.destinatario === 'contribuinteRevenda' ? 'contribuinte' : 'consumidor final') + ' · ' + orc.condicoes.pagamento + (orc.condicoes.pagamento === 'Parcelado' ? ' ' + orc.condicoes.parcelas + 'x ' + orc.condicoes.bandeira : '') + ' — o cabeçalho do orçamento vale para o item.';
+      }
+    });
+  }
+  function adicionarItem(origem) {
+    var prefix = origem === 'importacao' ? 'in-' : (origem === 'revenda' ? 'r-' : 'n-');
+    if (!orc) { infoAdd(prefix, 'Crie ou abra um orçamento na aba Orçamentos.', 'warn'); return; }
+    if (orcTravado()) { infoAdd(prefix, 'Orçamento travado (' + STATUS_ROTULO[orc.status].toLowerCase() + ').', 'warn'); return; }
+    var inputs = origem === 'importacao' ? lerEntradas() : lerEntradasRevenda(OPS[origem]);
+    var cab = ORC.cabecalhoDe(orc);
+    var div = ORC.divergenciasCabecalho(origem, inputs, cab);
+    if (div.length && !confirm('A calculadora está diferente do cabeçalho do orçamento "' + orcNome(orc) + '":\n• ' + div.join('\n• ') + '\n\nAdicionar recalculando para o orçamento?')) return;
+    var editando = itemEmEdicao && itemEmEdicao.orcId === orc.id && itemEmEdicao.origem === origem;
+    var existente = editando ? orc.itens.filter(function (x) { return x.id === itemEmEdicao.itemId; })[0] : null;
+    if (existente && origem !== 'importacao' && typeof itemEmEdicao.icmsSaidaManual === 'boolean') {
+      // Substituição (parecer nº 5, achado 1): os campos são relidos do zero, então a classificação do item carregado
+      // viria a se perder. Se o usuário NÃO alterou a alíquota de saída, a classificação carregada é mantida (manual
+      // continua manual, mesmo com o orçamento em MG); se alterou, vale a regra de um item novo — manual quando o valor
+      // difere da alíquota automática da UF da calculadora (em MG o campo não se aplica → automática).
+      var mexeu = typeof itemEmEdicao.icmsSaidaCarregada !== 'number' || Math.abs(Number(inputs.icmsSaida) - itemEmEdicao.icmsSaidaCarregada) >= 1e-9;
+      inputs.icmsSaidaManual = mexeu ? ORC.classificarAliquotaSaida(origem, inputs) : itemEmEdicao.icmsSaidaManual;
+    }
+    var item = { id: existente ? existente.id : ORC.gerarId('it'), origem: origem, descricao: existente ? existente.descricao : descricaoPadrao(origem, inputs), inputs: inputs };
+    var c;
+    try { c = ORC.calcularItem(orc.configSnapshot, cab, item); }
+    catch (e) { infoAdd(prefix, 'Não foi possível adicionar: ' + e.message, 'warn'); return; }
+    item.inputs = c.inputs; item.resultado = c.resultado; item.avisos = c.avisos; item.calculadoEm = new Date().toISOString();
+    if (existente) { orc.itens[orc.itens.indexOf(existente)] = item; itemEmEdicao = null; }
+    else orc.itens.push(item);
+    var ok = salvarOrcAtual();
+    var cons = ORC.consolidar(orc);
+    var msg = (existente ? 'Item substituído' : 'Item adicionado') + ' no orçamento "' + orcNome(orc) + '" (' + orc.itens.length + ' item(ns) · total ' + brl(cons.totais.totalCliente) + ').';
+    if (configDifereDoSnapshot(orc)) msg += ' Calculado com a configuração congelada do orçamento (dólar ' + numFmt(orc.configSnapshot.dolar, 2) + ') — use "Recalcular" no orçamento para trazer a configuração atual.';
+    if (c.avisos.length) msg += ' Aviso: ' + c.avisos.join(' ');
+    if (!ok) msg += ' (não salvo — veja a aba Orçamentos)';
+    atualizarBotoesAdd();
+    var info = $(prefix + 'addOrcInfo'); info.innerHTML = ''; info.className = 'hint';
+    info.appendChild(document.createTextNode(msg + ' '));
+    info.appendChild(el('button', { class: 'btn small', text: 'Abrir orçamento', onclick: function () { mostrarAba('orcamentos'); } }));
+  }
+  function carregarNaCalculadora(item) {
+    var inp = item.inputs;
+    if (item.origem === 'importacao') {
+      $('in-contribuinte').value = inp.contribuinte ? 'sim' : 'nao';
+      if (config.produtos.some(function (p) { return p.nome === inp.produto; })) $('in-produto').value = inp.produto;
+      $('in-perda').value = Math.round((Number(inp.perda) || 0) * 1e4) / 100;
+      $('in-precoBase').value = inp.precoBase; $('in-quantidade').value = inp.quantidade; $('in-frete').value = inp.frete;
+      $('in-pagamento').value = inp.pagamento; $('in-bandeira').value = inp.bandeira; $('in-parcelas').value = inp.parcelas; $('in-uf').value = inp.uf;
+      recalcular();
+    } else {
+      var op = OPS[item.origem]; PFX = op;
+      $(op.i + 'fornecedorUF').value = inp.fornecedorUF; $(op.i + 'precoCompra').value = inp.precoCompra; $(op.i + 'quantidade').value = inp.quantidade;
+      $(op.i + 'perda').value = Math.round((Number(inp.perda) || 0) * 1e4) / 100;
+      $(op.i + 'icmsCompra').value = Math.round((Number(inp.icmsCompra) || 0) * 1e4) / 100; $(op.i + 'ipi').value = Math.round((Number(inp.ipi) || 0) * 1e4) / 100;
+      $(op.i + 'modo').value = inp.modo || 'beneficiamento'; $(op.i + 'ipiCredito').value = inp.ipiCredito ? 'sim' : 'nao';
+      $(op.i + 'difalIncluso').value = inp.difalIncluso ? 'dentro' : 'fora'; $(op.i + 'contribuinte').value = inp.contribuinte ? 'sim' : 'nao';
+      $(op.i + 'clienteUF').value = inp.clienteUF; $(op.i + 'precoVenda').value = inp.precoVenda;
+      $(op.i + 'ipiVenda').value = Math.round((Number(inp.ipiVenda) || 0) * 1e4) / 100; $(op.i + 'icmsSaida').value = Math.round((Number(inp.icmsSaida) || 0) * 1e4) / 100;
+      $(op.i + 'frete').value = inp.frete; $(op.i + 'pagamento').value = inp.pagamento; $(op.i + 'bandeira').value = inp.bandeira; $(op.i + 'parcelas').value = inp.parcelas;
+      var revendaPura = (inp.modo || 'beneficiamento') === 'revenda';
+      $(op.i + 'ipiCredito').disabled = revendaPura; $(op.i + 'ipiVenda').disabled = revendaPura;
+      recalcularRevenda(op);
+    }
+    var edicao = { orcId: orc.id, itemId: item.id, origem: item.origem };
+    if (item.origem !== 'importacao') {
+      // Classificação manual/automática do item carregado e a alíquota tal como ficou no campo: ao substituir, a flag só é
+      // reavaliada se o usuário alterar esse campo (parecer nº 5, achado 1). Item antigo sem flag: classificado agora.
+      edicao.icmsSaidaManual = typeof inp.icmsSaidaManual === 'boolean' ? inp.icmsSaidaManual : ORC.classificarAliquotaSaida(item.origem, inp);
+      edicao.icmsSaidaCarregada = lerEntradasRevenda(OPS[item.origem]).icmsSaida;
+    }
+    itemEmEdicao = edicao;
+    mostrarAba(ORIGEM_TAB[item.origem]);
+    atualizarBotoesAdd();
+  }
+  function renderItensOrc(c) {
+    var wrap = $('orc-itens'); wrap.innerHTML = '';
+    var travado = orcTravado();
+    if (!orc.itens.length) { wrap.appendChild(el('p', { class: 'hint', text: 'Nenhum item ainda. Vá a uma calculadora, monte o item e clique em "Adicionar ao orçamento: ' + orcNome(orc) + '".' })); return; }
+    var resumo = {}; c.itens.forEach(function (r) { resumo[r.id] = r; });
+    var linhas = orc.itens.map(function (it, idx) {
+      var r = resumo[it.id] || {};
+      var desc = el('input', { type: 'text', class: 'desc', value: it.descricao || '' });
+      desc.disabled = travado;
+      desc.addEventListener('change', function () { it.descricao = desc.value.trim(); renderProposta(ORC.consolidar(orc)); salvarOrcAtual(); });
+      var descCel = el('td', {}, [desc]);
+      (it.avisos || []).forEach(function (a) { descCel.appendChild(el('small', { class: 'warn', text: a, style: 'display:block' })); });
+      if (it.origem === 'importacao') descCel.appendChild(el('small', { text: 'IPI não destacado (regime da planilha — pendente)', style: 'display:block;color:var(--muted)' }));
+      function btn(txt, fn, cls, title) { var b = el('button', { class: 'btn small' + (cls ? ' ' + cls : ''), text: txt, onclick: fn }); if (title) b.title = title; b.disabled = travado; return b; }
+      var acoes = el('td', { class: 'acoes' }, [
+        btn('▲', function () { moverItem(idx, -1); }, '', 'Mover para cima'), btn('▼', function () { moverItem(idx, 1); }, '', 'Mover para baixo'),
+        btn('Carregar', function () { carregarNaCalculadora(it); }, '', 'Abrir na calculadora de origem para ajustar e substituir'),
+        btn('Duplicar', function () { duplicarItem(it); }),
+        btn('Remover', function () { removerItem(it); }, 'danger')
+      ]);
+      return el('tr', { class: r.lucro < 0 ? 'neg' : '' }, [
+        el('td', { text: String(idx + 1) }),
+        el('td', {}, [el('span', { class: 'tag ' + ORIGEM_CLASSE[it.origem], text: ORIGEM_ROTULO[it.origem] })]),
+        descCel,
+        el('td', { class: 'num', text: numFmt(r.quantidade || 0, 2) }),
+        el('td', { class: 'num', text: brl(r.precoM2 || 0) }),
+        el('td', { class: 'num', text: brl(r.totalCliente || 0) }),
+        el('td', { class: 'num', text: brl(r.custo || 0) }),
+        el('td', { class: 'num lucro', text: brl(r.lucro || 0) }),
+        el('td', { class: 'num', text: pctNa(r.margem) }),
+        acoes
+      ]);
+    });
+    var t = c.totais;
+    linhas.push(el('tr', { class: 'tot' }, [el('td', { text: '', colspan: '3' }), el('td', { class: 'num', text: numFmt(t.quantidade, 2) }), el('td', { text: '' }),
+      el('td', { class: 'num', text: brl(t.totalCliente) }), el('td', { class: 'num', text: brl(t.custoItens) }), el('td', { class: 'num', text: brl(t.lucroItens) }),
+      el('td', { class: 'num', text: t.totalCliente > 0 ? pct(t.lucroItens / t.totalCliente, 1) : 'n/a' }), el('td', { text: '' })]));
+    wrap.appendChild(el('table', { class: 'itens' }, [
+      el('thead', {}, [el('tr', {}, [['#', ''], ['Origem', ''], ['Descrição', ''], ['m²', 'num'], ['R$/m²', 'num'], ['Total ao cliente', 'num'], ['Custo', 'num'], ['Lucro', 'num'], ['Margem', 'num'], ['', '']].map(function (h) { return el('th', { text: h[0], class: h[1] }); }))]),
+      el('tbody', {}, linhas)
+    ]));
+  }
+  function moverItem(idx, delta) {
+    var j = idx + delta; if (j < 0 || j >= orc.itens.length) return;
+    var tmp = orc.itens[idx]; orc.itens[idx] = orc.itens[j]; orc.itens[j] = tmp;
+    renderOrc(); salvarOrcAtual();
+  }
+  function duplicarItem(it) {
+    var novo = clone(it); novo.id = ORC.gerarId('it'); novo.descricao = (it.descricao || '') + ' (cópia)';
+    orc.itens.splice(orc.itens.indexOf(it) + 1, 0, novo);
+    renderOrc(); salvarOrcAtual();
+  }
+  function removerItem(it) {
+    if (!confirm('Remover o item "' + (it.descricao || ORIGEM_ROTULO[it.origem]) + '"?')) return;
+    orc.itens.splice(orc.itens.indexOf(it), 1);
+    if (itemEmEdicao && itemEmEdicao.itemId === it.id) itemEmEdicao = null;
+    renderOrc(); salvarOrcAtual(); atualizarBotoesAdd();
+  }
+
+  /* ---------- custos internos ---------- */
+  function renderCustosOrc(c) {
+    var wrap = $('orc-custos'); wrap.innerHTML = '';
+    var travado = orcTravado();
+    if (!orc.custosInternos.length) { wrap.appendChild(el('p', { class: 'hint', text: 'Nenhum custo interno lançado.' })); return; }
+    var calc = {}; c.custos.forEach(function (x) { calc[x.id] = x.valor; });
+    var linhas = orc.custosInternos.map(function (ci) {
+      var tipo = el('select', {}, Object.keys(TIPO_CUSTO_ROTULO).map(function (k) { return el('option', { value: k, text: TIPO_CUSTO_ROTULO[k] }); }));
+      tipo.value = ci.tipo; tipo.disabled = travado;
+      tipo.addEventListener('change', function () { ci.tipo = tipo.value; renderOrc(); salvarOrcAtual(); });
+      var desc = el('input', { type: 'text', value: ci.descricao || '', placeholder: 'descrição' }); desc.disabled = travado;
+      desc.addEventListener('change', function () { ci.descricao = desc.value.trim(); salvarOrcAtual(); });
+      var modo = el('select', {}, [el('option', { value: 'valor', text: 'Valor fixo (R$)' }), el('option', { value: 'percentual', text: '% do total ao cliente' })]);
+      var ehPct = ci.percentual !== null && ci.percentual !== undefined;
+      modo.value = ehPct ? 'percentual' : 'valor'; modo.disabled = travado;
+      var num = el('input', { type: 'number', step: ehPct ? '0.1' : '0.01', min: '0', value: ehPct ? Math.round(ci.percentual * 1e4) / 100 : (ci.valor === null || ci.valor === undefined ? '' : ci.valor) });
+      num.disabled = travado;
+      modo.addEventListener('change', function () {
+        if (modo.value === 'percentual') { ci.percentual = 0; ci.valor = null; } else { ci.valor = 0; ci.percentual = null; }
+        renderOrc(); salvarOrcAtual();
+      });
+      num.addEventListener('change', function () {
+        var v = num.value === '' ? 0 : Number(num.value);
+        if (modo.value === 'percentual') ci.percentual = v / 100; else ci.valor = v;
+        renderOrc(); salvarOrcAtual();
+      });
+      var rm = el('button', { class: 'btn small danger', text: 'Remover', onclick: function () { orc.custosInternos.splice(orc.custosInternos.indexOf(ci), 1); renderOrc(); salvarOrcAtual(); } }); rm.disabled = travado;
+      return el('tr', {}, [el('td', {}, [tipo]), el('td', {}, [desc]), el('td', {}, [modo]), el('td', { class: 'num' }, [num]),
+        el('td', { class: 'num', text: brl(calc[ci.id] || 0) }), el('td', {}, [rm])]);
+    });
+    linhas.push(el('tr', { class: 'tot' }, [el('td', { text: 'Total de custos internos', colspan: '4', style: 'font-weight:700' }), el('td', { class: 'num', text: brl(c.totais.custosInternos), style: 'font-weight:700' }), el('td', { text: '' })]));
+    wrap.appendChild(el('table', { class: 'custos' }, [
+      el('thead', {}, [el('tr', {}, [['Tipo', ''], ['Descrição', ''], ['Cobrança', ''], ['Valor / %', 'num'], ['R$ no orçamento', 'num'], ['', '']].map(function (h) { return el('th', { text: h[0], class: h[1] }); }))]),
+      el('tbody', {}, linhas)
+    ]));
+  }
+  function adicionarCusto() {
+    if (orcTravado()) return;
+    orc.custosInternos.push({ id: ORC.gerarId('c'), tipo: 'freteContratado', descricao: '', valor: 0, percentual: null });
+    renderOrc(); salvarOrcAtual();
+  }
+
+  /* ---------- consolidado, DRE, composição, proposta ---------- */
+  function renderOrc() {
+    if (!orc) return;
+    aplicarTravaOrc();
+    var c;
+    try { c = ORC.consolidar(orc); }
+    catch (e) { orcStatus('Não foi possível consolidar: ' + e.message, 'err'); return; }
+    var t = c.totais;
+    $('oo-totalLabel').textContent = 'Total ao cliente' + (t.itens ? ' (' + t.itens + ' ite' + (t.itens > 1 ? 'ns' : 'm') + ')' : '');
+    $('oo-total').textContent = brl(t.totalCliente);
+    $('oo-totalSub').textContent = t.itens ? 'Custo total ' + brl(t.custoTotalReal) + ' (antes de IRPJ/CSLL, cenário real) · lucro operacional ' + brl(t.lucroOperacional) + (t.margemOperacional !== null ? ' (' + pct(t.margemOperacional, 1) + ')' : '') + ' · custos internos já descontados' : 'Adicione itens pelas calculadoras.';
+    $('oo-liqReal').textContent = brl(c.real.lucroLiquido);
+    $('oo-liqRealSub').textContent = pctNa(c.real.margemSobreValorPago) + ' do valor pago · IRPJ/CSLL ' + brl(c.real.irpjCsll);
+    $('oo-liqPres').textContent = brl(c.presumido.lucroLiquido);
+    var delta = c.presumido.lucroLiquido - c.real.lucroLiquido;
+    $('oo-liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(c.presumido.irpjCsll);
+    renderGraficoGenerico('oviz', t.totalCliente, t.custoTotalReal, c.real.lucroLiquido, c.composicao.map(function (p) {
+      var sub = p.chave === 'tributos' ? 'venda ' + brl(c.real.deducoes) + ' · IRPJ/CSLL ' + brl(c.real.irpjCsll) : (p.chave === 'cmv' ? 'líquido dos créditos' : (p.chave === 'internos' ? (orc.custosInternos.length + ' lançamento(s)') : (p.chave === 'lucro' ? 'lucro real' : 'itens')));
+      return { nome: p.nome, sub: sub, valor: p.valor };
+    }));
+    renderDre(c.real, c.presumido, 'oo-dre', DRE_LINHAS_ORCAMENTO, 'Tributos totais líquidos (itens) + IRPJ/CSLL consolidado');
+    var p = orc.premissas;
+    $('orc-dreHint').textContent = 'Estimativa gerencial — não é apuração. Premissas congeladas neste orçamento: IRPJ/CSLL real ' + pct(p.irpjCsllReal, 0) + ' (marginal) sobre o lucro consolidado — prejuízo de um item compensa outro e custos internos são tratados como dedutíveis; presumido ' + pct(p.irpj, 0) + ' + ' + pct(p.csll, 0) + ' sobre ' + pct(p.presumidoBaseIRPJ, 0) + '/' + pct(p.presumidoBaseCSLL, 0) + ' da receita' + (p.lc224 ? ' (+10%, LC 224/2025)' : '') + ', somado por item; custos internos sem crédito de PIS/COFINS. Configuração congelada: dólar ' + numFmt(orc.configSnapshot.dolar, 2) + ' · motor ' + orc.versaoMotor + '.';
+    renderItensOrc(c); renderCustosOrc(c);
+    var av = $('oo-avisos'); av.innerHTML = '';
+    var calculado = orc.itens.length ? orc.itens.reduce(function (m, it) { return it.calculadoEm > m ? it.calculadoEm : m; }, '') : orc.criadoEm;
+    $('orc-itensInfo').textContent = orc.itens.length ? 'Itens calculados com dólar ' + numFmt(orc.configSnapshot.dolar, 2) + ' (configuração congelada em ' + dataHora(calculado) + ' · motor ' + orc.versaoMotor + ').' : '';
+    if (configDifereDoSnapshot(orc)) av.appendChild(el('p', { class: 'warn', text: 'A configuração atual (dólar ' + numFmt(config.dolar, 2) + ', alíquotas, cartão, tributos) é diferente da congelada neste orçamento. Os números acima não mudam sozinhos — use "Recalcular com a configuração atual" para atualizá-los.' }));
+    c.avisos.forEach(function (a) { av.appendChild(el('p', { class: 'warn', text: a })); });
+    var fcpPend = ORC.fcpPendente(orc);
+    if (fcpPend.length) av.appendChild(el('p', { class: 'warn', text: 'FCP de ' + fcpPend.join(', ') + ' não cadastrado: itens de importação direta calculados com FCP 0% e a proposta sairá com a ressalva "adicional estadual será confirmado na emissão da nota fiscal". Para remover, cadastre o FCP dessa UF em Configurações (0 se o estado não cobra).' }));
+    if (c.real.reducaoPotencial > 0) av.appendChild(el('p', { text: 'Orçamento com prejuízo: imposto estimado zero; a perda de ' + brl(-c.real.lucroOperacional) + ' reduziria IRPJ/CSLL de outros resultados em até ' + brl(c.real.reducaoPotencial) + ' (não computado).' }));
+    if (orc.versaoMotor !== ORC.VERSAO_MOTOR) av.appendChild(el('p', { class: 'warn', text: 'Calculado com o motor ' + orc.versaoMotor + '; este app usa ' + ORC.VERSAO_MOTOR + ' — recalcule para atualizar.' }));
+    if (!av.children.length) av.appendChild(el('p', { text: 'Premissas e configuração congeladas; nada pendente.' }));
+    renderProposta(c);
+  }
+  function round2(v) { return Math.round(v * 100) / 100; }
+  function renderProposta(c) {
+    var p = $('proposta'); p.innerHTML = '';
+    var emitido = ORC.emitido(orc);
+    var emp = emitido ? orc.empresa : (config.empresa || orc.empresa);   // antes da emissão acompanha Configurações; depois, congelado
+    var cd = orc.condicoes, cl = orc.cliente;
+    var dataRef = emitido ? orc.emitidoEm : new Date().toISOString();
+    var empLinhas = [emp.cnpj ? 'CNPJ ' + emp.cnpj : '', emp.endereco, [emp.telefone, emp.email].filter(Boolean).join(' · ')].filter(Boolean).join('\n');
+    p.appendChild(el('div', { class: 'p-head' }, [
+      el('div', {}, [el('div', { class: 'marca', text: emp.razaoSocial || 'MaisGlass' }), el('div', { class: 'emp', text: empLinhas })]),
+      el('div', { class: 'p-num' }, [el('b', { text: 'Proposta nº ' + orcNumero(orc) }), document.createTextNode(dataCurta(dataRef) + (cd.validadeDias ? ' · válida por ' + cd.validadeDias + ' dia' + (cd.validadeDias > 1 ? 's' : '') : ''))])
+    ]));
+    p.appendChild(el('p', {}, [el('b', { text: 'Cliente: ' }), document.createTextNode((cl.nome || '—') + (cl.contato ? ' · ' + cl.contato : '') + ' · ' + cl.uf)]));
+    if (!orc.itens.length) { p.appendChild(el('p', { class: 'p-vazio', text: 'Adicione itens para montar a proposta.' })); return; }
+    var somaImpressa = 0, unitarioAprox = false;
+    var linhas = c.itens.map(function (r, i) {
+      var unit = r.quantidade > 0 ? round2(r.totalCliente / r.quantidade) : 0, tot = round2(r.totalCliente); somaImpressa += tot;
+      if (Math.abs(unit * r.quantidade - tot) >= 0.01) unitarioAprox = true;   // unitário × m² ≠ total do item (arredondamento do unitário)
+      return el('tr', {}, [el('td', { text: String(i + 1) }), el('td', { text: r.descricao || ORIGEM_ROTULO[r.origem] }), el('td', { class: 'num', text: numFmt(r.quantidade, 2) }),
+        el('td', { class: 'num', text: numFmt(unit, 2) }), el('td', { class: 'num', text: numFmt(tot, 2) })]);
+    });
+    var totalImpresso = round2(c.totais.totalCliente);
+    linhas.push(el('tr', { class: 'tot' }, [el('td', { text: 'Total', colspan: '4' }), el('td', { class: 'num', text: brl(totalImpresso) })]));
+    p.appendChild(el('table', {}, [el('thead', {}, [el('tr', {}, [['Item', ''], ['Descrição', ''], ['m²', 'num'], ['R$/m² (aprox.)', 'num'], ['Total (R$)', 'num']].map(function (h) { return el('th', { text: h[0], class: h[1] }); }))]), el('tbody', {}, linhas)]));
+    var notasArred = [];
+    if (unitarioAprox) notasArred.push('O preço por m² é aproximado (duas casas); vale o total de cada item, calculado com precisão integral.');
+    if (Math.abs(somaImpressa - totalImpresso) >= 0.01) notasArred.push('A soma dos itens difere do total em ' + brl(Math.abs(somaImpressa - totalImpresso)) + ' por arredondamento; vale o total.');
+    notasArred.forEach(function (n) { p.appendChild(el('p', { class: 'p-obs', text: n })); });
+    var pag = cd.pagamento === 'Parcelado' ? 'parcelado em ' + cd.parcelas + 'x no cartão ' + cd.bandeira + ' (taxa do cartão já incluída nos preços)' : 'à vista';
+    var inclusos = [cd.inclusos && cd.inclusos.frete ? 'frete' : '', cd.inclusos && cd.inclusos.instalacao ? 'instalação' : '', cd.inclusos && cd.inclusos.texto].filter(Boolean).join(', ');
+    var cond = el('div', { class: 'p-cond' });
+    cond.appendChild(el('p', {}, [el('b', { text: 'Pagamento: ' }), document.createTextNode(pag)]));
+    if (cd.prazoEntrega) cond.appendChild(el('p', {}, [el('b', { text: 'Entrega: ' }), document.createTextNode(cd.prazoEntrega)]));
+    cond.appendChild(el('p', {}, [el('b', { text: 'Incluso: ' }), document.createTextNode(inclusos || 'somente os itens listados')]));
+    p.appendChild(cond);
+    var fcpPend = ORC.fcpPendente(orc);
+    var notaImpostos = fcpPend.length
+      ? 'Preços com impostos inclusos (IPI, ICMS e DIFAL conforme o destino). O adicional estadual do Fundo de Combate à Pobreza (FCP) de ' + fcpPend.join(', ') + ' será confirmado na emissão da nota fiscal e poderá ser acrescido ao valor.'
+      : 'Preços com impostos inclusos (IPI, ICMS, DIFAL e FCP conforme o destino).';
+    var obs = (cd.observacoes ? cd.observacoes + '\n' : '') + notaImpostos + ' Esta proposta não cobre obrigações tributárias do destinatário.';
+    p.appendChild(el('p', { class: 'p-obs', text: obs }));
+  }
+
+  /* ---------- ações do editor ---------- */
+  function recalcularOrc() {
+    if (!orc || orcTravado()) return;
+    if (!orc.itens.length) { orc.premissas = ORC.premissasDe(config); orc.configSnapshot = clone(config); orc.versaoMotor = ORC.VERSAO_MOTOR; renderOrc(); if (salvarOrcAtual()) orcStatus('Configuração congelada atualizada (sem itens).', 'ok'); return; }
+    var cab = ORC.cabecalhoDe(orc), novos;
+    try { novos = recalcularItens(config, cab); }
+    catch (e) { orcStatus('Recalcular cancelado — ' + e.message + '. Nada foi alterado.', 'err'); return; }
+    var antes = ORC.consolidar(orc);
+    var simulado = Object.assign({}, orc, { itens: novos, premissas: ORC.premissasDe(config), configSnapshot: config, versaoMotor: ORC.VERSAO_MOTOR });
+    var depois = ORC.consolidar(simulado);
+    var linhas = ['Recalcular com a configuração atual (dólar ' + numFmt(config.dolar, 2) + '):',
+      'Total ao cliente: ' + brl(antes.totais.totalCliente) + ' → ' + brl(depois.totais.totalCliente),
+      'Lucro líquido (real): ' + brl(antes.real.lucroLiquido) + ' → ' + brl(depois.real.lucroLiquido)];
+    orc.itens.forEach(function (it, i) {
+      var a = it.resultado ? it.resultado.lucro : 0, b = novos[i].resultado.lucro;
+      if (Math.abs(a - b) > 0.005) linhas.push('• ' + (it.descricao || ORIGEM_ROTULO[it.origem]) + ': lucro ' + brl(a) + ' → ' + brl(b));
+    });
+    if (linhas.length === 3) linhas.push('Nenhum item muda de valor.');
+    linhas.push('', 'Aplicar? (os valores antigos são substituídos)');
+    if (!confirm(linhas.join('\n'))) { orcStatus('Recálculo cancelado — nada foi alterado.', ''); return; }
+    orc.itens = novos; orc.premissas = ORC.premissasDe(config); orc.configSnapshot = clone(config); orc.versaoMotor = ORC.VERSAO_MOTOR;
+    renderOrc();
+    if (salvarOrcAtual()) orcStatus('Itens recalculados com a configuração atual e salvos.', 'ok');
+    else orcStatus($('orcStatus').textContent + ' (o recálculo está aplicado só nesta tela — exporte o JSON ou tente salvar de novo)', 'err');
+  }
+  function novaRevisaoOrc() {
+    if (!orc) return;
+    concluirSalvarPendente();
+    var n = clone(orc), revAnterior = orc.revisao || 1;
+    n.id = ORC.gerarId('orc'); n.revisao = revAnterior + 1; n.revisaoDe = orc.id; n.status = 'rascunho'; n.enviadoEm = null; n.emitidoEm = null; n.emissaoOrigem = null;
+    n.criadoEm = n.atualizadoEm = new Date().toISOString();
+    orcamentos.unshift(n); var ok = gravarOrcamentos(n); abrirOrc(n.id);
+    if (ok) orcStatus('Revisão ' + n.revisao + ' criada como rascunho; a revisão ' + revAnterior + ' fica preservada na lista.', 'ok');
+  }
+  function duplicarOrc() {
+    if (!orc) return;
+    concluirSalvarPendente();
+    var n = clone(orc);
+    n.id = ORC.gerarId('orc'); n.revisao = 1; n.revisaoDe = null; n.status = 'rascunho'; n.enviadoEm = null; n.emitidoEm = null; n.emissaoOrigem = null;
+    n.cliente.nome = (orc.cliente.nome || 'sem nome') + ' (cópia)'; n.criadoEm = n.atualizadoEm = new Date().toISOString();
+    orcamentos.unshift(n); var ok = gravarOrcamentos(n); abrirOrc(n.id);
+    if (ok) orcStatus('Orçamento duplicado.', 'ok');
+  }
+  function excluirOrc(id) {
+    var o = orcamentos.filter(function (x) { return x.id === id; })[0]; if (!o) return;
+    if (!confirm('Excluir o orçamento "' + orcNome(o) + '" (rev. ' + o.revisao + ')? Não dá para desfazer — exporte o JSON antes se quiser guardar.')) return;
+    cancelarGravacaoAdiada(id);                                  // gravação confirmada ainda pendente deste id não pode ressuscitá-lo (parecer nº 5, achado 2)
+    if (orc && orc.id === id) { clearTimeout(orcTimer); orcTimer = null; orcPendente = null; orc = null; }
+    orcamentos.splice(orcamentos.indexOf(o), 1); limparNaoSalvo(id);
+    var ok = gravarOrcamentos(null, id);
+    mostrarListaOrc(); orcListaStatus(ok ? 'Orçamento excluído.' : 'Não foi possível gravar a exclusão — recarregue a página.', ok ? 'ok' : 'err');
+  }
+  function exportarOrc() {
+    if (!orc) return;
+    concluirSalvarPendente(); lerCabecalhoTexto();
+    var nome = 'orcamento-' + (orc.cliente.nome || 'sem-nome').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-rev' + orc.revisao + '.json';
+    var blob = new Blob([JSON.stringify(orc, null, 2)], { type: 'application/json' });
+    var a = el('a', { href: URL.createObjectURL(blob), download: nome });
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+  function importarOrc(file) {
+    var fr = new FileReader();
+    fr.onload = function () {
+      var o;
+      try {
+        o = ORC.migrarOrcamento(JSON.parse(fr.result));
+        var erros = ORC.validarOrcamento(o);
+        if (erros.length) throw new Error(erros.slice(0, 4).join(' '));
+      } catch (e) { orcListaStatus('Arquivo inválido: ' + e.message, 'err'); return; }
+      // Nada que veio do arquivo entra na conta: cada item é recalculado com a configuração congelada do próprio
+      // arquivo e o resultado recalculado SUBSTITUI o importado; divergências viram aviso no item (parecer nº 3, achado 3).
+      var conf = ORC.conferirResultados(o), naoRecalc = [];
+      o.itens.forEach(function (it) {
+        var rc = conf.recalculados[it.id];
+        var div = conf.divergentes.filter(function (d) { return d.id === it.id; });
+        if (rc) { it.inputs = rc.inputs; it.resultado = rc.resultado; it.avisos = rc.avisos.slice(); it.calculadoEm = new Date().toISOString(); }
+        else naoRecalc.push(it.descricao || it.origem);
+        div.forEach(function (d) { it.avisos = (it.avisos || []).concat(['Resultado do arquivo ' + (rc ? 'diferia do recálculo e foi substituído' : 'não pôde ser recalculado') + ' (' + d.motivo + ').']); });
+      });
+      if (naoRecalc.length) { orcListaStatus('Arquivo recusado: item(ns) não recalculável(is) com a configuração congelada — ' + naoRecalc.join(', '), 'err'); return; }
+      // candidato inteiro (já recalculado) precisa validar E consolidar em memória antes de entrar na lista/disco
+      var errosCand = ORC.validarOrcamento(o);
+      if (errosCand.length) { orcListaStatus('Arquivo recusado após o recálculo: ' + errosCand.slice(0, 3).join(' '), 'err'); return; }
+      try { ORC.consolidar(o); } catch (e) { orcListaStatus('Arquivo recusado: não consolida — ' + e.message, 'err'); return; }
+      if (orcamentos.some(function (x) { return x.id === o.id; }) || lerStorageOrc().some(function (x) { return x && x.id === o.id; })) o.id = ORC.gerarId('orc');
+      o.atualizadoEm = new Date().toISOString();
+      orcamentos.unshift(o);
+      var ok = gravarOrcamentos(o);
+      abrirOrc(o.id);
+      if (ok) orcStatus('Orçamento importado e salvo' + (conf.divergentes.length ? ' — ' + conf.divergentes.length + ' item(ns) com resultado diferente do recálculo (substituído; veja os avisos).' : '.'), conf.divergentes.length ? 'err' : 'ok');
+      else orcStatus($('orcStatus').textContent + ' Orçamento importado só nesta tela.', 'err');
+    };
+    fr.readAsText(file);
+  }
+  function imprimirOrc() {
+    if (!orc || !orc.itens.length) { orcStatus('Adicione itens antes de imprimir a proposta.', 'err'); return; }
+    concluirSalvarPendente(); lerCabecalhoTexto(); renderProposta(ORC.consolidar(orc));
+    window.print();
+  }
+
+  function iniciarOrcamentos() {
+    carregarOrcamentos();
+    $('orcNovo').addEventListener('click', novoOrc);
+    $('orcVoltar').addEventListener('click', mostrarListaOrc);
+    $('orcRecalcular').addEventListener('click', recalcularOrc);
+    $('orcImprimir').addEventListener('click', imprimirOrc);
+    $('orcRevisao').addEventListener('click', novaRevisaoOrc);
+    $('orcDuplicar').addEventListener('click', duplicarOrc);
+    $('orcExportar').addEventListener('click', exportarOrc);
+    $('orcExcluir').addEventListener('click', function () { if (orc) excluirOrc(orc.id); });
+    $('orcImportar').addEventListener('click', function () { $('orcArquivo').click(); });
+    $('orcArquivo').addEventListener('change', function () { if (this.files[0]) importarOrc(this.files[0]); this.value = ''; });
+    $('orcAddCusto').addEventListener('click', adicionarCusto);
+    ['o-uf', 'o-destinatario', 'o-pagamento', 'o-bandeira', 'o-parcelas'].forEach(function (id) { $(id).addEventListener('change', function () { if (orc) onCabecalhoFiscal(); }); });
+    $('o-status').addEventListener('change', function () { if (orc) onStatusOrc(); });
+    ['o-nome', 'o-contato', 'o-validade', 'o-prazo', 'o-dataPrevista', 'o-inclusoFrete', 'o-inclusoInstalacao', 'o-inclusoTexto', 'o-observacoes'].forEach(function (id) {
+      var f = function () { if (!orc) return; lerCabecalhoTexto(); renderProposta(ORC.consolidar(orc)); agendarSalvarOrc(); };
+      $(id).addEventListener('input', f); $(id).addEventListener('change', f);
+    });
+    [['in-', 'importacao'], ['r-', 'revenda'], ['n-', 'nacional']].forEach(function (par) { var b = $(par[0] + 'addOrc'); if (b) b.addEventListener('click', function () { adicionarItem(par[1]); }); });
+    window.addEventListener('pagehide', concluirSalvarPendente);
+    window.addEventListener('beforeunload', function (ev) { concluirSalvarPendente(); if (temNaoSalvos()) { ev.preventDefault(); ev.returnValue = ''; } });
+    window.addEventListener('storage', function (ev) {
+      if (ev.key !== ORC_KEY) return;
+      var disco = lerStorageOrc();
+      if (orc) {
+        var noDisco = disco.filter(function (x) { return x && x.id === orc.id; })[0];
+        if (!noDisco) orcStatus('Este orçamento foi excluído em outra aba. Ele continua nesta tela; salvar vai recriá-lo.', 'err');
+        else if (orcGravadoEm[orc.id] && noDisco.atualizadoEm !== orcGravadoEm[orc.id]) orcStatus('Outra aba alterou este orçamento (' + dataHora(noDisco.atualizadoEm) + '). A próxima gravação vai pedir confirmação; recarregue a página para ver a versão dela.', 'err');
+      }
+      sincronizarListaOrc(disco);
+      if (!orc) renderListaOrc();
+      else if (temNaoSalvos()) orcStatus(($('orcStatus').textContent ? $('orcStatus').textContent + ' ' : '') + 'Alterações não gravadas desta aba foram preservadas.', 'err');
+    });
+    var salvoId = null; try { salvoId = sessionStorage.getItem('glassmais.orcAtual'); } catch (e) { /* ignore */ }
+    if (salvoId && orcamentos.some(function (o) { return o.id === salvoId; })) abrirOrc(salvoId); else { renderListaOrc(); atualizarBotoesAdd(); }
+  }
+
   /* ---------------- inicialização ---------------- */
   var iniciado = false;
   function iniciarApp() {
@@ -1049,6 +1826,7 @@
     document.querySelectorAll('#tab-calc input, #tab-calc select').forEach(function (i) {
       i.addEventListener('input', recalcular); i.addEventListener('change', recalcular);
     });
+    iniciarOrcamentos();    // módulo Orçamentos (depois do clone da aba nacional: usa n-addOrc)
     document.querySelectorAll('nav.tabs button').forEach(function (b) { b.addEventListener('click', function () { mostrarAba(b.getAttribute('data-tab')); }); });
     document.querySelectorAll('.home-card').forEach(function (c) { c.addEventListener('click', function () { mostrarAba(c.getAttribute('data-go')); }); });
     var abaSalva = null; try { abaSalva = sessionStorage.getItem('glassmais.aba'); } catch (e) { /* ignore */ }

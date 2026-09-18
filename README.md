@@ -8,11 +8,15 @@ build, sem servidor: abre direto no navegador ou publica no GitHub Pages.
 
 | Arquivo | Função |
 |---|---|
-| `index.html` | Interface (login, Início, três calculadoras, Configurações). CSS embutido. |
+| `index.html` | Interface (login, Início, três calculadoras, Orçamentos, Configurações). CSS embutido, inclusive o de impressão da proposta. |
 | `calc.js` | Motor de cálculo puro (sem DOM). Cada fórmula cita a célula da planilha de origem. |
 | `defaults.js` | Valores padrão: produtos, classes fiscais + NCM, despesas nacionais, entreposto, cartão, DIFAL. É o "Restaurar padrão". |
-| `app.js` | Liga interface ↔ motor; login; localStorage; exportar/importar JSON. |
-| `test/test.js` | Testes de regressão (planilha + memorial da contadora). `node test/test.js` |
+| `orcamento.js` | Motor do módulo Orçamentos (puro): consolida itens das três calculadoras, custos internos, DRE real × presumido. |
+| `app.js` | Liga interface ↔ motores; login; localStorage; exportar/importar JSON; aba Orçamentos e proposta impressa. |
+| `test/test.js` | Testes de regressão do motor (planilha, memorial da contadora, orçamentos). `node test/test.js` — 565 verificações, sem dependências |
+| `test/ui.js` | Testes da interface do módulo Orçamentos em Node com jsdom (`npm i` e `node test/ui.js`) — carrega `index.html` + scripts reais com timers e `confirm()` controlados; 122 verificações, sai com código 1 se falhar |
+| `test/browser/` | Scripts Playwright assert-based (fluxo completo, reprodução dos pareceres nº 3 a 6, impressão) — `node test/browser/todos.js`; ver `test/browser/README.md` |
+| `package.json` | Só scripts de teste e devDependencies (jsdom, playwright); o site continua estático, sem build |
 
 ## Como publicar (GitHub Pages)
 
@@ -197,10 +201,112 @@ atualiza as três calculadoras. Alíquotas internas 2026: PR 19,5%, RS 17%, MT
 17% (a planilha trazia 19/18/19).
 
 Configurações salvas com a tabela antiga são migradas ao carregar
-(`calc.js → migrarConfig`, `versao` 3): MG 11% → 18%, PR 19 → 19,5, RS 18 → 17,
-MT 19 → 17 — só quando o valor salvo ainda é o da planilha; um ajuste manual é
-preservado. A UF da empresa é fixa em MG (`EMPRESA_UF`), porque o regime
-especial da importação direta é de Minas.
+(`calc.js → migrarConfig`, `versao` 4): MG 11% → 18%, PR 19 → 19,5, RS 18 → 17,
+MT 19 → 17 (v2/v3) e IRPJ do presumido 15% → 25% (v4) — só quando o valor
+salvo ainda é o antigo; um ajuste manual é preservado. A UF da empresa é fixa
+em MG (`EMPRESA_UF`), porque o regime especial da importação direta é de Minas.
+
+## FCP na importação direta, presumido com adicional, LC 224/2025 (set/2026)
+
+- **FCP na importação direta** — a tabela DIFAL da planilha é `interna − 4%` e
+  não soma o FCP do destino. `calc.js → calcularImportacao(config, inputs)` é
+  um envelope sobre `calcular()` (intacta, com hash conferido no teste) que
+  acrescenta o FCP para consumidor final fora de MG: FCP = B15 × FCP% (mesma
+  base do DIFAL), cobrado a mais do cliente; fica na base do PIS/COFINS (SC
+  Cosit 61/2024); custo total sobe FCP + ΔPIS/COFINS. UF sem FCP cadastrado
+  calcula com 0% e avisa (não bloqueia, ao contrário das calcs 2/3). A aba
+  mostra "FCP (%)" e "Valor do FCP"; `dreImportacao()` lê `r.fcp`.
+- **Presumido com adicional de IRPJ** — `tributos.irpj` passou de 15% para 25%
+  (15% + adicional de 10%), mesma premissa do lucro real (34%); IRPJ/CSLL
+  presumido = 8%×25% + 12%×9% = 3,08% da receita sem IPI. Coluna "se fosse
+  presumido" nas três abas e nos orçamentos.
+- **LC 224/2025** — `tributos.lc224` (padrão `false`): quando verdadeiro, os
+  percentuais de presunção sobem 10% (8,8% / 13,2%) — receita anual acima de
+  R$ 5 mi. `calc.js → aliquotaPresumido(tb)`.
+- Rótulos de destinatário: "Consumidor final não contribuinte" / "Contribuinte
+  que revende/industrializa"; contribuinte comprando para uso próprio não é
+  coberto. Importação direta marca "IPI não destacado (regime da planilha —
+  pendente)".
+
+## Orçamentos (`orcamento.js` + aba Orçamentos)
+
+Compõe um orçamento para um cliente com itens das três calculadoras. Regras
+(ver `PROJETO-ORCAMENTO.md` v2 e `RESPOSTA-PARECER-ORCAMENTO.md`):
+
+- **Cabeçalho manda**: UF de destino, destinatário, pagamento/bandeira/parcelas
+  valem para todos os itens. "Adicionar ao orçamento" (botão nas três abas)
+  lê as entradas da calculadora, substitui os campos do cliente pelos do
+  cabeçalho (perguntando se divergirem) e roda o motor com a **configuração
+  congelada** do orçamento. A alíquota interestadual de saída (revenda/nacional)
+  é classificada quando o item entra (`inputs.icmsSaidaManual`): automática
+  acompanha a UF do cabeçalho; manual é mantida em qualquer troca (inclusive
+  passando por MG) com aviso. "Carregar" abre o item na calculadora de origem
+  e "Substituir item" o devolve: se a alíquota de saída **não foi alterada**, a
+  classificação carregada é mantida (manual continua manual, mesmo com o
+  orçamento em MG); se foi alterada, vale a regra de um item novo (manual
+  quando difere da automática da UF da calculadora; em MG, automática). Mudar o
+  cabeçalho com itens recalcula todos (mostra a diferença; tudo ou nada).
+- **Congelamento**: cada orçamento guarda `premissas` (IRPJ/CSLL, presunção,
+  LC 224, dedutibilidade), `configSnapshot` (cópia da configuração), o motor
+  usado e, por item, entradas + resultado. `consolidar(orcamento)` só usa o
+  que está no orçamento — mudar Configurações não altera orçamentos salvos;
+  "Recalcular com a configuração atual" mostra a diferença antes de aplicar.
+- **Consolidação** (`GM_ORC.consolidar`): `adaptarDre` põe a DRE de cada item
+  numa convenção única (deduções = débitos cheios; CMV líquido dos créditos —
+  a importação direta é reapresentada somando os créditos de PIS/COFINS da
+  importação às deduções e tirando do CMV; o lucro não muda). Linhas aditivas
+  somam; IRPJ/CSLL **real = 34% × max(0, lucro consolidado)** (prejuízo de um
+  item compensa outro; custos internos dedutíveis — premissa); **presumido =
+  soma dos itens** (base é a receita). Margens dos totais ("n/a" sem receita).
+- **Custos internos** (frete contratado, transporte próprio, instalação,
+  comissão fixa ou % do total, outros): só na DRE, sem crédito. Aviso quando há
+  frete cobrado na NF de um item e custo interno de transporte (o motor já
+  trata o frete cobrado como despesa de igual valor).
+- **Status**: a primeira saída do rascunho (enviado, aprovado ou perdido) é a
+  emissão (`emitidoEm`, `emissaoOrigem: "app"`): congela data e dados da
+  empresa uma única vez e trava cabeçalho, itens e custos; nunca volta a
+  rascunho. "Nova revisão" duplica como rascunho (rev. n+1) preservando a
+  anterior. Orçamentos anteriores ao marco são migrados: `enviadoEm` válido
+  vale como emissão (mesmo em rascunho); aprovado/perdido sem data usam
+  `atualizadoEm` como data inferida — `emissaoOrigem` registra a procedência.
+  Datas (`criadoEm`, `atualizadoEm`, `enviadoEm`, `emitidoEm`) são validadas
+  como ISO 8601 estrito (`AAAA-MM-DD` ou `AAAA-MM-DDThh:mm[:ss[.fração]]` +
+  `Z`/`±hh:mm`, com calendário e relógio conferidos — 30/02 não passa);
+  `emitidoEm` inválido recusa o arquivo, `enviadoEm` inválido não é evidência.
+- **Proposta impressa**: só `#proposta` sai na impressão (`@media print`):
+  dados da empresa (Configurações até a emissão; depois os congelados),
+  cliente, itens (m², R$/m² aproximado, total), total, pagamento, entrega,
+  inclusões, observações. Vale o total de cada item (nota quando unitário × m²
+  difere); FCP não cadastrado em item de importação direta gera ressalva
+  "adicional estadual será confirmado na emissão da nota fiscal".
+- **Persistência**: `localStorage` `glassmais.orcamentos.v1` (lista), autosave
+  500 ms concluído ao sair do editor/trocar de orçamento/fechar a página; cada
+  gravação relê o disco e substitui só o orçamento alterado; conflito com outra
+  aba pede confirmação e **nenhuma decisão grava na hora**: toda confirmação
+  (sobrescrever a versão da outra aba, ou recriar um orçamento que outra aba
+  excluiu durante o diálogo) agenda a gravação para a volta seguinte do event
+  loop, que relê o disco e confere se o estado confirmado (a versão vista, ou
+  "ausente") continua o mesmo — se sim, grava sobre a lista relida (o que
+  outra aba gravou durante o diálogo é preservado); se mudou, pergunta de
+  novo. A detecção de "outra aba alterou" compara a versão gravada
+  (`atualizadoEm` diferente da conhecida), não ordem cronológica de texto.
+  Gravações confirmadas pendentes são controladas por orçamento
+  (`gravacoesAdiadas`, com geração) e representam a decisão mais recente:
+  excluir o orçamento, recusar um diálogo posterior, concluir uma gravação ou
+  confirmar de novo cancela/supera a pendente — um callback cancelado ou
+  superado nunca grava. Edições
+  não gravadas (falha, conflito recusado, pendente) ficam em `naoSalvos`,
+  sobrevivem à sincronização e aparecem com o badge "não salvo". Exportar/
+  importar JSON: a importação valida estrutura e identidades contábeis,
+  recalcula cada item com o `configSnapshot` do arquivo, **usa o resultado
+  recalculado**, valida e consolida o candidato inteiro antes de gravar. Aviso
+  acima de 4 MB. Limite: não há lock entre abas.
+- Testes: bloco "Fase 1a/1b" em `test/test.js` (item sozinho = consolidado;
+  três itens; custos internos; comissão %; prejuízo compensando; cabeçalho
+  manda; recalcular; congelamento; validação/importação; hash de `calcular()`)
+  e blocos "Parecer 3/4/5"; ciclos de interface (carregar/substituir, gravação
+  adiada × exclusão/recusa/recriação, importação com data impossível) em
+  `test/ui.js` (jsdom) e `test/browser/p5.js`/`p6.js` (Chromium).
 
 ## Validação
 

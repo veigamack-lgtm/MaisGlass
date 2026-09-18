@@ -1,0 +1,138 @@
+/* Parecer nº 3 — reprodução em navegador real dos oito achados. Assert-based: sai com código 1 se qualquer
+ * verificação falhar ou se houver erro de página em qualquer aba. */
+const fs = require('fs');
+const os = require('os');
+const { iniciar, executar, ok, igual, contem } = require('./_base');
+
+executar(async () => {
+  const B = await iniciar(); const { p, t, disco, aba, abrir, novaPagina, login } = B;
+  let aceitar = true; const dialogs = []; p.on('dialog', d => { dialogs.push(d.message().split('\n')[0]); aceitar ? d.accept() : d.dismiss(); });
+  const tmp = os.tmpdir();
+  // cadastra FCP da BA para o cenário
+  await p.evaluate(() => { const c = JSON.parse(JSON.stringify(GM_DEFAULTS.config)); c.revenda.fcp.BA = 0.02; localStorage.setItem('glassmais.config.v1', JSON.stringify(c)); });
+  await p.reload(); await login(p);
+
+  console.log('--- achado 1: alíquota acompanha a UF');
+  await aba(p, 'orcamentos'); await p.click('#orcNovo'); await p.waitForTimeout(150);
+  await p.fill('#o-nome', 'Ach1'); await p.selectOption('#o-destinatario', 'contribuinteRevenda'); await p.waitForTimeout(700);
+  await aba(p, 'nacional');
+  await p.fill('#n-precoCompra', '102.61'); await p.fill('#n-quantidade', '2000'); await p.fill('#n-precoVenda', '175'); await p.selectOption('#n-clienteUF', 'RJ'); await p.waitForTimeout(200);
+  igual('calculadora: saída sugerida para RJ', await p.inputValue('#n-icmsSaida'), '12');
+  await p.click('#n-addOrc'); await p.waitForTimeout(200);
+  await aba(p, 'orcamentos');
+  igual('lucro do item no RJ', (await p.textContent('#orc-itens tbody tr:nth-child(1) td.lucro')).trim(), 'R$ 98.562,01');
+  await p.selectOption('#o-uf', 'BA'); await p.waitForTimeout(400);
+  igual('BA: lucro 113.473,98 (o valor do parecer)', (await p.textContent('#orc-itens tbody tr:nth-child(1) td.lucro')).trim(), 'R$ 113.473,98');
+  igual('BA: icmsSaida gravado 7%', (await disco(p))[0].itens[0].inputs.icmsSaida, 0.07);
+  await p.locator('#orc-itens tbody tr').nth(0).locator('button:has-text("Carregar")').click(); await p.waitForTimeout(200);
+  await p.fill('#n-icmsSaida', '10'); await p.locator('#n-icmsSaida').dispatchEvent('input'); await p.waitForTimeout(100); await p.click('#n-addOrc'); await p.waitForTimeout(200);
+  await aba(p, 'orcamentos'); await p.selectOption('#o-uf', 'RJ'); await p.waitForTimeout(400);
+  contem('manual 10% → RJ: aviso no item', await t(p, 'orc-itens'), 'mantido do ajuste manual');
+  contem('manual 10% → RJ: aviso consolidado', await t(p, 'oo-avisos'), 'ajuste manual');
+
+  console.log('--- achado 2: duas abas com orçamentos diferentes');
+  await p.click('#orcVoltar'); await p.waitForTimeout(100);
+  await p.click('#orcNovo'); await p.waitForTimeout(100); await p.fill('#o-nome', 'A'); await p.waitForTimeout(700); await p.click('#orcVoltar'); await p.waitForTimeout(100);
+  await p.click('#orcNovo'); await p.waitForTimeout(100); await p.fill('#o-nome', 'B'); await p.waitForTimeout(700); await p.click('#orcVoltar'); await p.waitForTimeout(100);
+  const p2 = await novaPagina('aba 2'); await aba(p2, 'orcamentos');
+  await abrir(p, 'A nº'); await p.fill('#o-nome', 'A alterado na aba 1'); await p.waitForTimeout(700); await p.click('#orcVoltar'); await p.waitForTimeout(100);
+  await abrir(p2, 'B nº'); await p2.fill('#o-nome', 'B alterado na aba 2'); await p2.waitForTimeout(700);
+  igual('disco após aba 2 salvar B: A preservado', (await disco(p2)).map(o => o.cliente.nome).sort(), ['A alterado na aba 1', 'Ach1', 'B alterado na aba 2']);
+  await p2.click('#orcVoltar'); await p2.waitForTimeout(100);
+  await p.locator('#orc-tabela tbody tr', { hasText: 'Ach1' }).locator('button:has-text("Excluir")').click(); await p.waitForTimeout(200);
+  await abrir(p2, 'B alterado'); await p2.fill('#o-contato', 'x'); await p2.waitForTimeout(700);
+  igual('exclusão na aba 1 + gravação na aba 2: Ach1 não ressuscitou', (await disco(p2)).map(o => o.cliente.nome).sort(), ['A alterado na aba 1', 'B alterado na aba 2']);
+  contem('aba 1 sincronizada pelo evento storage', await t(p, 'orc-tabela'), 'B alterado na aba 2');
+  await abrir(p, 'B alterado');
+  await p2.fill('#o-contato', 'aba2 de novo'); await p2.waitForTimeout(700);
+  aceitar = false; await p.fill('#o-contato', 'aba1'); await p.waitForTimeout(800); aceitar = true;
+  contem('conflito recusado: status aba 1', await t(p, 'orcStatus'), 'Não salvo — outra aba alterou');
+  igual('disco mantém a versão da aba 2', (await disco(p2)).find(o => o.cliente.nome.startsWith('B')).cliente.contato, 'aba2 de novo');
+  await p2.close();
+
+  console.log('--- achado 4: sair antes dos 500 ms');
+  await p.click('#orcVoltar'); await p.waitForTimeout(100);
+  await abrir(p, 'A alterado'); await p.fill('#o-nome', 'A editado rápido'); await p.click('#orcVoltar'); await p.waitForTimeout(700);
+  igual('voltar imediato: gravado', (await disco(p)).some(o => o.cliente.nome === 'A editado rápido'), true);
+  await abrir(p, 'A editado'); await p.fill('#o-nome', 'A editado 2'); await p.click('#orcVoltar'); await p.waitForTimeout(50);
+  await abrir(p, 'B alterado'); await p.waitForTimeout(700);
+  igual('trocar de orçamento: A salvo com o nome novo', (await disco(p)).map(o => o.cliente.nome).filter(n => n.startsWith('A')), ['A editado 2']);
+  igual('B não recebeu o nome de A', await p.inputValue('#o-nome'), 'B alterado na aba 2');
+
+  console.log('--- achado 5: status');
+  await aba(p, 'config'); await p.fill('[data-cfg="empresa.razaoSocial"]', 'Empresa original'); await p.waitForTimeout(800);
+  await aba(p, 'orcamentos'); await aba(p, 'calc'); await p.click('#in-addOrc'); await p.waitForTimeout(150); await aba(p, 'orcamentos');
+  await p.selectOption('#o-status', 'enviado'); await p.waitForTimeout(300);
+  const emitido = (await disco(p)).find(o => o.status === 'enviado');
+  igual('enviado: emitidoEm definido e empresa congelada', [!!emitido.emitidoEm, emitido.emissaoOrigem, emitido.empresa.razaoSocial], [true, 'app', 'Empresa original']);
+  await aba(p, 'config'); await p.fill('[data-cfg="empresa.razaoSocial"]', 'Empresa nova'); await p.waitForTimeout(800);
+  await aba(p, 'orcamentos'); await p.selectOption('#o-status', 'aprovado'); await p.waitForTimeout(300);
+  contem('enviado → aprovado: proposta mantém a empresa original', await t(p, 'proposta'), 'Empresa original');
+  igual('rascunho e enviado desabilitados', [await p.locator('#o-status option[value="rascunho"]').isDisabled(), await p.locator('#o-status option[value="enviado"]').isDisabled()], [true, true]);
+  await p.selectOption('#o-status', 'perdido'); await p.waitForTimeout(300);
+  igual('perdido: travado, nome desabilitado, só "Perdido" habilitado', [await p.locator('#orc-travado').evaluate(e => !e.classList.contains('hidden')), await p.locator('#o-nome').isDisabled(), await p.locator('#o-status option:not([disabled])').allTextContents()], [true, true, ['Perdido']]);
+  await p.click('#orcRevisao'); await p.waitForTimeout(200);
+  await p.selectOption('#o-status', 'aprovado'); await p.waitForTimeout(300);
+  const dir = (await disco(p)).find(o => o.status === 'aprovado' && o.revisao === 2);
+  igual('aprovado direto do rascunho: emitidoEm definido', !!dir.emitidoEm, true);
+  contem('data da proposta = emissão', await t(p, 'proposta'), new Date(dir.emitidoEm).toLocaleDateString('pt-BR'));
+
+  console.log('--- achado 6: falha de gravação não vira sucesso');
+  await p.click('#orcVoltar'); await p.waitForTimeout(100);
+  await p.evaluate(() => { window.__set = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new Error('QuotaExceededError'); }; });
+  await p.click('#orcNovo'); await p.waitForTimeout(300);
+  contem('novo com quota estourada', await t(p, 'orcStatus'), 'Não foi possível salvar');
+  await p.evaluate(() => { Storage.prototype.setItem = window.__set; });
+  await p.fill('#o-nome', 'Q'); await p.waitForTimeout(700);
+  contem('após restaurar', await t(p, 'orcStatus'), 'Salvo automaticamente');
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#orcExportar')]);
+  const json = JSON.parse(fs.readFileSync(await dl.path(), 'utf8')); fs.writeFileSync(tmp + '/orc-q.json', JSON.stringify(json));
+  await p.click('#orcVoltar'); await p.waitForTimeout(100);
+  await p.evaluate(() => { Storage.prototype.setItem = function () { throw new Error('QuotaExceededError'); }; });
+  await p.setInputFiles('#orcArquivo', tmp + '/orc-q.json'); await p.waitForTimeout(400);
+  contem('importar com quota estourada', await t(p, 'orcStatus'), 'Não foi possível salvar');
+  await p.evaluate(() => { Storage.prototype.setItem = window.__set; });
+
+  console.log('--- achado 3: JSON com DRE mexida');
+  await p.click('#orcVoltar'); await p.waitForTimeout(100);
+  await abrir(p, 'A editado 2');
+  await aba(p, 'revenda'); await p.click('#r-addOrc'); await p.waitForTimeout(150); await aba(p, 'orcamentos');
+  const [dl2] = await Promise.all([p.waitForEvent('download'), p.click('#orcExportar')]);
+  const j2 = JSON.parse(fs.readFileSync(await dl2.path(), 'utf8'));
+  const liqOk = await t(p, 'oo-liqReal');
+  const jA = JSON.parse(JSON.stringify(j2)); jA.itens[0].resultado.dre.real.cmv += 10000; fs.writeFileSync(tmp + '/orc-cmv.json', JSON.stringify(jA));
+  await p.click('#orcVoltar'); await p.waitForTimeout(100); await p.setInputFiles('#orcArquivo', tmp + '/orc-cmv.json'); await p.waitForTimeout(400);
+  contem('CMV +10.000 (identidade quebrada) recusado', await t(p, 'orcListaStatus'), 'lucro bruto ≠ receita líquida − CMV');
+  const jB = JSON.parse(JSON.stringify(j2)); const d = jB.itens[0].resultado.dre.real; d.cmv += 10000; d.lucroBruto -= 10000; d.lucroOperacional -= 10000; d.lucroLiquido -= 10000; jB.itens[0].resultado.lucro -= 10000; jB.itens[0].resultado.custoTotal += 10000;
+  fs.writeFileSync(tmp + '/orc-cmv2.json', JSON.stringify(jB));
+  await p.setInputFiles('#orcArquivo', tmp + '/orc-cmv2.json'); await p.waitForTimeout(400);
+  contem('CMV +10.000 coerente: importado e substituído pelo recálculo', await t(p, 'orcStatus'), 'resultado diferente do recálculo');
+  igual('lucro líquido igual ao original', await t(p, 'oo-liqReal'), liqOk);
+  contem('aviso no item', await t(p, 'orc-itens'), 'diferia do recálculo');
+  const j3 = JSON.parse(JSON.stringify(j2)); j3.itens = 'abc'; fs.writeFileSync(tmp + '/orc-mal.json', JSON.stringify(j3));
+  await p.click('#orcVoltar'); await p.waitForTimeout(100); await p.setInputFiles('#orcArquivo', tmp + '/orc-mal.json'); await p.waitForTimeout(300);
+  contem('itens="abc"', await t(p, 'orcListaStatus'), '"itens" deve ser uma lista');
+  const j4 = JSON.parse(JSON.stringify(j2)); j4.itens[0].resultado.dre.real = {}; fs.writeFileSync(tmp + '/orc-vazio.json', JSON.stringify(j4));
+  await p.setInputFiles('#orcArquivo', tmp + '/orc-vazio.json'); await p.waitForTimeout(300);
+  contem('DRE real = {}', await t(p, 'orcListaStatus'), 'dre.real.receitaBruta não é número finito');
+
+  console.log('--- achados 7 e 8: proposta');
+  await abrir(p, 'A editado 2');
+  await aba(p, 'calc'); await p.fill('#in-precoBase', '140.01'); await p.locator('#in-precoBase').dispatchEvent('input'); await p.waitForTimeout(100); await p.click('#in-addOrc'); await p.waitForTimeout(150);
+  await aba(p, 'orcamentos');
+  const prop = await t(p, 'proposta');
+  contem('unitário aprox.: cabeçalho', prop, 'R$/m² (aprox.)');
+  contem('unitário aprox.: nota', prop, 'aproximado');
+  await p.click('#orcVoltar'); await p.waitForTimeout(100); await p.click('#orcNovo'); await p.waitForTimeout(100);
+  await p.fill('#o-nome', 'SP sem FCP'); await p.selectOption('#o-uf', 'SP'); await p.waitForTimeout(700);
+  await aba(p, 'calc'); await p.click('#in-addOrc'); await p.waitForTimeout(150); await aba(p, 'orcamentos');
+  const propSP = await t(p, 'proposta');
+  contem('FCP pendente SP: ressalva na proposta', propSP, 'será confirmado na emissão');
+  igual('sem a frase incondicional "DIFAL e FCP conforme"', propSP.includes('DIFAL e FCP conforme'), false);
+  contem('aviso no editor', await t(p, 'oo-avisos'), 'ressalva');
+  await p.evaluate(() => { const c = JSON.parse(localStorage.getItem('glassmais.config.v1')); c.revenda.fcp.SP = 0; localStorage.setItem('glassmais.config.v1', JSON.stringify(c)); });
+  await p.reload(); await login(p); await aba(p, 'orcamentos');
+  await p.click('#orcRecalcular'); await p.waitForTimeout(300);
+  igual('SP com FCP 0 confirmado após recalcular: ressalva some', (await t(p, 'proposta')).includes('será confirmado'), false);
+  await B.fim();
+});

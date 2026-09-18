@@ -8,7 +8,7 @@
   'use strict';
 
   var DEFAULT_CONFIG = {
-    versao: 3,               // 2 = MG interna 18% (planilha trazia 11%); 3 = PR 19,5 / RS 17 / MT 17 e DIFAL derivado. app.js migra configs salvas
+    versao: 4,               // 2 = MG interna 18% (planilha trazia 11%); 3 = PR 19,5 / RS 17 / MT 17 e DIFAL derivado; 4 = presumido com adicional de IRPJ (25%). calc.js → migrarConfig
 
     /* --- Parâmetros gerais (Calculadora Chapa!F1 e VL 4+4!D7:D10) --- */
     dolar: 5.30,              // USD/BRL
@@ -118,10 +118,27 @@
       irpjCsllReal: 0.34,          // IRPJ 15% + adicional 10% + CSLL 9% sobre o lucro (empresa acima da faixa do adicional)
       presumidoBaseIRPJ: 0.08,     // indústria/comércio: 8% da receita bruta
       presumidoBaseCSLL: 0.12,     // 12% da receita bruta
-      irpj: 0.15,                  // alíquota IRPJ sobre a base presumida (adicional de 10% ignorado: base < R$ 60 mil/trimestre)
+      irpj: 0.25,                  // IRPJ 15% + adicional 10% sobre a base presumida — mesma premissa do lucro real (empresa acima da faixa); v4
+      lc224: false,                // LC 224/2025: +10% nos percentuais de presunção sobre a receita anual acima de R$ 5 mi (MaisGlass abaixo do limite)
       csll: 0.09,                  // alíquota CSLL
       pisCumulativo: 0.0065,       // presumido: PIS 0,65% sem crédito
       cofinsCumulativo: 0.03       // presumido: COFINS 3% sem crédito
+    },
+
+    /* --- Dados da empresa (cabeçalho da proposta impressa do módulo Orçamentos) --- */
+    empresa: {
+      razaoSocial: 'MaisGlass',
+      cnpj: '',
+      endereco: 'Juiz de Fora / MG',
+      telefone: '',
+      email: ''
+    },
+
+    /* --- Padrões da proposta (módulo Orçamentos) --- */
+    proposta: {
+      validadeDias: 15,
+      prazoEntrega: '',
+      observacoes: 'Proposta sujeita a confirmação de estoque. Não inclui serviços não listados.'
     },
 
     /* --- DIFAL por UF (aba DIFAL da planilha, mantida como está): [alíquota interna, DIFAL %].
