@@ -16,8 +16,14 @@ catch (e) { console.error('jsdom não encontrado: instale com "npm i jsdom" (ou 
 
 var RAIZ = path.join(__dirname, '..');
 var HTML = fs.readFileSync(path.join(RAIZ, 'index.html'), 'utf8');
-var SCRIPTS = ['defaults.js', 'calc.js', 'orcamento.js', 'app.js'].map(function (f) { return fs.readFileSync(path.join(RAIZ, f), 'utf8'); });
+var SCRIPTS = ['defaults.js', 'calc.js', 'orcamento.js', 'nuvem.js', 'app.js'].map(function (f) { return fs.readFileSync(path.join(RAIZ, f), 'utf8'); });
 var ORC_KEY = 'glassmais.orcamentos.v1';
+var servidorLocal = require('./servidor-local');
+var O = require(path.join(RAIZ, 'orcamento.js')).GM_ORC;
+var D = require(path.join(RAIZ, 'defaults.js')).GM_DEFAULTS;
+var esperar = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+/* um "ambiente" = um servidor local (API em memória) compartilhado pelas máquinas de um cenário */
+async function ambiente(opts) { return servidorLocal.iniciar(Object.assign({ env: { ADMIN_SENHA_TROCADA: '1' } }, opts || {})); }
 
 var total = 0, falhas = [];
 function ok(cond, msg, extra) { total++; if (cond) console.log('OK    ' + msg); else { falhas.push(msg); console.log('FALHA ' + msg + (extra !== undefined ? ' → ' + JSON.stringify(extra) : '')); } }
@@ -25,7 +31,7 @@ function igual(msg, a, b) { ok(JSON.stringify(a) === JSON.stringify(b), msg + ':
 function aprox(msg, a, b, tol) { ok(typeof a === 'number' && Math.abs(a - b) <= (tol || 1e-9), msg + ': ' + a + (Math.abs(a - b) <= (tol || 1e-9) ? '' : ' ≠ esperado ' + b)); }
 
 /* ---------- uma "aba": jsdom + app real + timers e diálogos controlados ---------- */
-function novaAba(opts) {
+async function novaAba(amb, opts) {
   opts = opts || {};
   var vc = new VirtualConsole();
   var errosPagina = [];
@@ -33,7 +39,17 @@ function novaAba(opts) {
   vc.on('error', function (m) { errosPagina.push('console.error: ' + String(m).slice(0, 200)); });
   var dom = new JSDOM(HTML, { runScripts: 'outside-only', url: 'http://localhost/', pretendToBeVisual: true, virtualConsole: vc });
   var w = dom.window;
-  var aba = { w: w, doc: w.document, errosPagina: errosPagina, timers: [], seq: 0, confirms: [], respostas: [], setItems: 0 };
+  var aba = { w: w, doc: w.document, errosPagina: errosPagina, timers: [], seq: 0, confirms: [], respostas: [], setItems: 0, nuvemTimers: [], cookie: '', amb: amb, rede: true };
+  // fetch "real" contra o servidor local, com cookie de sessão próprio desta máquina; aba.rede = false simula queda de conexão
+  w.fetch = function (url, init) {
+    init = init || {};
+    if (!aba.rede) return Promise.reject(new TypeError('Failed to fetch'));
+    var h = Object.assign({}, init.headers || {}); if (aba.cookie) h.Cookie = aba.cookie;
+    return fetch(amb.url + url, { method: init.method || 'GET', headers: h, body: init.body }).then(function (r) {
+      var sc = r.headers.get('set-cookie'); if (sc) aba.cookie = /Max-Age=0/.test(sc) ? '' : sc.split(';')[0];
+      return r;
+    });
+  };
   // timers controlados: nada dispara sozinho; o teste chama aba.disparar(ms)
   w.setTimeout = function (fn, ms) { var id = ++aba.seq; aba.timers.push({ id: id, fn: fn, ms: ms }); return id; };
   w.clearTimeout = function (id) { aba.timers = aba.timers.filter(function (t) { return t.id !== id; }); };
@@ -49,10 +65,34 @@ function novaAba(opts) {
   w.alert = function () {}; w.print = function () {}; w.scrollTo = function () {};
   var setItem = w.Storage.prototype.setItem;
   w.Storage.prototype.setItem = function (k, v) { if (k === ORC_KEY) aba.setItems++; if (aba.falharSetItem && k === ORC_KEY) throw new Error('QuotaExceededError'); return setItem.call(this, k, v); };
-  w.sessionStorage.setItem('glassmais.auth', '1');
   if (opts.disco) w.localStorage.setItem(ORC_KEY, JSON.stringify(opts.disco));
+  if (opts.sync) w.localStorage.setItem('glassmais.sync.v1', JSON.stringify(opts.sync));
+  if (opts.config) w.localStorage.setItem('glassmais.config.v1', JSON.stringify(opts.config));
+  // login prévio (a não ser que o teste queira ver a tela de login)
+  var login = opts.login === undefined ? { email: amb.ctx.env.ADMIN_EMAIL, senha: amb.ctx.env.ADMIN_SENHA_INICIAL } : opts.login;
+  if (login) { var rl = await w.fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'MaisGlass' }, body: JSON.stringify(login) }); if (rl.status !== 200) throw new Error('login de teste falhou: ' + rl.status); }
   SCRIPTS.forEach(function (src) { w.eval(src); });
+  // timers da nuvem (envio com debounce, reenvio) ficam numa fila própria, disparada por aba.sync()
+  w.GM_NUVEM._timers.set = function (fn, ms) { var id = ++aba.seq; aba.nuvemTimers.push({ id: id, fn: fn, ms: ms }); return id; };
+  w.GM_NUVEM._timers.clear = function (id) { aba.nuvemTimers = aba.nuvemTimers.filter(function (t) { return t.id !== id; }); };
   w.document.dispatchEvent(new w.Event('DOMContentLoaded'));
+  if (login) {   // espera o app abrir e a carga inicial da nuvem terminar
+    for (var i = 0; i < 200 && !(w.GM_NUVEM.carregou() && !w.document.getElementById('app').classList.contains('hidden')); i++) await esperar(10);
+    if (!w.GM_NUVEM.carregou()) throw new Error('app não carregou da nuvem (login ' + login.email + ')');
+  } else { for (var j = 0; j < 100 && w.document.getElementById('loginInfo').textContent === 'Conectando…'; j++) await esperar(10); }
+  /* aba.sync(): dispara os timers da nuvem e espera o envio/recebimento terminar (rede real, assíncrona) */
+  aba.sync = async function () {
+    for (var k = 0; k < 40; k++) {
+      var lote = aba.nuvemTimers.splice(0); lote.forEach(function (t) { t.fn(); });
+      await esperar(25);
+      if (!aba.nuvemTimers.length && w.GM_NUVEM.pendentes() === 0) { await esperar(25); if (!aba.nuvemTimers.length) break; }
+      if (!aba.rede) break;
+    }
+    await esperar(25);
+  };
+  aba.puxar = async function () { await w.GM_NUVEM.sincronizarAgora(); await esperar(25); };
+  aba.syncEstado = function () { return w.GM_NUVEM._lerSync(); };
+  aba.servidor = async function () { var r = await w.fetch('/api/sync', { headers: { 'X-Requested-With': 'MaisGlass' } }); return (await r.json()).orcamentos.filter(function (o) { return !o.excluidoEm; }); };
   aba.$ = function (id) { var e = w.document.getElementById(id); if (!e) throw new Error('elemento #' + id + ' não existe'); return e; };
   aba.set = function (id, valor, evento) { var e = aba.$(id); e.value = valor; e.dispatchEvent(new w.Event(evento || 'input', { bubbles: true })); if (!evento) e.dispatchEvent(new w.Event('change', { bubbles: true })); };
   aba.click = function (id) { aba.$(id).click(); };
@@ -80,9 +120,10 @@ function itemNacional(o, idx) { var it = o.itens[idx === undefined ? 0 : idx]; r
 /* =====================================================================
  * Achado 1 — Carregar na calculadora → Substituir item preserva a classificação manual
  * ===================================================================== */
+(async function principal() {
 console.log('\n--- Parecer 5 — achado 1: carregar/substituir e a flag icmsSaidaManual');
-(function () {
-  var a = novaAba();
+await (async function () {
+  var a = await novaAba(await ambiente());
   a.novoOrc('Cliente RJ', 'RJ', 'contribuinteRevenda');
   // item nacional com alíquota MANUAL de 10% preparado para o RJ (automática seria 12%)
   a.aba('nacional');
@@ -191,9 +232,9 @@ console.log('\n--- Parecer 5 — achado 1: carregar/substituir e a flag icmsSaid
  * Achado 2 — gravação confirmada pendente × exclusão / gravações superadas
  * ===================================================================== */
 console.log('\n--- Parecer 5 — achado 2: gravação adiada não ressuscita excluído nem grava superada');
-function abaComConflito() {
+async function abaComConflito() {
   // aba com A e B gravados; depois "outra aba" altera A no disco (mais novo que a versão desta aba)
-  var a = novaAba();
+  var a = await novaAba(await ambiente());
   a.novoOrc('A original', 'RJ'); a.click('orcVoltar');
   a.novoOrc('B original', 'RJ'); a.click('orcVoltar');
   var d = a.disco(); var idA = d.filter(function (o) { return o.cliente.nome === 'A original'; })[0].id;
@@ -201,8 +242,8 @@ function abaComConflito() {
   a.escreverDisco(d.map(function (o) { if (o.id === idA) { o.cliente.nome = 'A da outra aba'; o.atualizadoEm = futuro; } return o; }));
   return { a: a, idA: idA };
 }
-(function () {
-  var s = abaComConflito(), a = s.a, idA = s.idA;
+await (async function () {
+  var s = await abaComConflito(), a = s.a, idA = s.idA;
   a.abrir('A original');                                             // lista em memória ainda mostra o nome que esta aba conhece
   a.set('o-nome', 'A desta aba');
   igual('autosave agendado (500 ms)', a.pendentes(500).length, 1);
@@ -227,9 +268,9 @@ function abaComConflito() {
   igual('sem erros de página', a.errosPagina, []);
 })();
 
-(function () {
+await (async function () {
   // callback JÁ enfileirado (capturado antes do cancelamento) não pode gravar
-  var s = abaComConflito(), a = s.a, idA = s.idA;
+  var s = await abaComConflito(), a = s.a, idA = s.idA;
   a.abrir('A original'); a.set('o-nome', 'A desta aba'); a.disparar(500);
   var cb = a.pendentes(60)[0].fn;                                    // simula o callback já na fila do event loop
   a.click('orcVoltar'); a.excluirDaLista('A desta aba');
@@ -239,9 +280,9 @@ function abaComConflito() {
   igual('sem erros de página', a.errosPagina, []);
 })();
 
-(function () {
+await (async function () {
   // duas gravações pendentes do mesmo id: só a última vale, e a superada não grava mesmo se executada
-  var s = abaComConflito(), a = s.a, idA = s.idA;
+  var s = await abaComConflito(), a = s.a, idA = s.idA;
   a.abrir('A original'); a.set('o-nome', 'A v1'); a.disparar(500);
   igual('1ª confirmação', a.confirms.length, 1);
   var cb1 = a.pendentes(60)[0].fn;
@@ -258,9 +299,9 @@ function abaComConflito() {
   igual('sem erros de página', a.errosPagina, []);
 })();
 
-(function () {
+await (async function () {
   // excluído em OUTRA aba enquanto o diálogo estava aberto: a decisão valia para a versão vista → pergunta de novo
-  var s = abaComConflito(), a = s.a, idA = s.idA;
+  var s = await abaComConflito(), a = s.a, idA = s.idA;
   a.abrir('A original'); a.set('o-nome', 'A desta aba'); a.disparar(500);
   a.escreverDisco(a.disco().filter(function (o) { return o.id !== idA; }));      // outra aba excluiu A
   a.respostas.push(false);
@@ -276,9 +317,9 @@ function abaComConflito() {
   igual('sem erros de página', a.errosPagina, []);
 })();
 
-(function () {
+await (async function () {
   // regressão do parecer nº 4: B alterado por outra aba DURANTE o diálogo é preservado; A desta aba gravado
-  var s = abaComConflito(), a = s.a, idA = s.idA;
+  var s = await abaComConflito(), a = s.a, idA = s.idA;
   a.abrir('A original');
   a.respostas.push(function () { a.escreverDisco(a.disco().map(function (o) { if (o.id !== idA) { o.cliente.nome = 'B editado durante confirmação'; o.atualizadoEm = new Date(Date.now() + 90000).toISOString(); } return o; })); return true; });
   a.set('o-nome', 'A desta aba'); a.disparar(500); a.disparar(60);
@@ -304,18 +345,18 @@ function abaComConflito() {
  * protocolo adiado: aceitar → volta ao event loop → relê o disco → grava sobre a lista NOVA (ou reavalia se A voltou)
  * ===================================================================== */
 console.log('\n--- Parecer 6 — achado 1: recriação confirmada usa a lista relida, não a antiga');
-function abaComAExcluidoNoDialogo() {
+async function abaComAExcluidoNoDialogo() {
   // A em conflito; 1ª confirmação aceita; antes do callback de 60 ms, a outra aba exclui A
-  var s = abaComConflito(), a = s.a, idA = s.idA;
+  var s = await abaComConflito(), a = s.a, idA = s.idA;
   a.abrir('A original'); a.set('o-nome', 'A local'); a.disparar(500);
   igual('1ª confirmação (sobrescrever) → gravação adiada pendente', [a.confirms.length, a.pendentes(60).length], [1, 1]);
   a.escreverDisco(a.disco().filter(function (o) { return o.id !== idA; }));      // outra aba excluiu A
   return s;
 }
 function outraAbaAltera(a, filtro, mut, seg) { a.escreverDisco(a.disco().map(function (o) { if (filtro(o)) mut(o); o.atualizadoEm = filtro(o) ? new Date(Date.now() + seg * 1000).toISOString() : o.atualizadoEm; return o; })); }
-(function () {
+await (async function () {
   // (a) durante a pergunta de recriação, a outra aba altera B → aceitar → B alterado preservado e A recriado
-  var s = abaComAExcluidoNoDialogo(), a = s.a, idA = s.idA;
+  var s = await abaComAExcluidoNoDialogo(), a = s.a, idA = s.idA;
   a.respostas.push(function (msg) { outraAbaAltera(a, function (o) { return o.id !== idA; }, function (o) { o.cliente.nome = 'B changed during recreation confirm'; }, 200); return true; });
   a.disparar(60);
   igual('2ª pergunta é a de recriação', [a.confirms.length, /excluído em outra aba enquanto você confirmava/.test(a.confirms[1])], [2, true]);
@@ -328,17 +369,17 @@ function outraAbaAltera(a, filtro, mut, seg) { a.escreverDisco(a.disco().map(fun
   a.click('orcVoltar'); igual('nada marcado "não salvo"', a.texto('orc-tabela').indexOf('não salvo'), -1);
   igual('sem erros de página', a.errosPagina, []);
 })();
-(function () {
+await (async function () {
   // (b) durante a pergunta de recriação, a outra aba exclui B → aceitar → B continua ausente
-  var s = abaComAExcluidoNoDialogo(), a = s.a, idA = s.idA;
+  var s = await abaComAExcluidoNoDialogo(), a = s.a, idA = s.idA;
   a.respostas.push(function () { a.escreverDisco([]); return true; });                 // outra aba excluiu B também
   a.disparar(60); a.disparar(60);
   igual('B excluído durante a pergunta continua ausente; A recriado', a.disco().map(function (o) { return o.cliente.nome; }), ['A local']);
   igual('sem erros de página', a.errosPagina, []);
 })();
-(function () {
+await (async function () {
   // (c) durante a pergunta de recriação, a outra aba RECRIA A (versão nova) → reavaliação antes de sobrescrever
-  var s = abaComAExcluidoNoDialogo(), a = s.a, idA = s.idA;
+  var s = await abaComAExcluidoNoDialogo(), a = s.a, idA = s.idA;
   var recriadoPelaOutra = JSON.parse(JSON.stringify(a.disco()[0])); recriadoPelaOutra.id = idA; recriadoPelaOutra.cliente.nome = 'A recriado pela outra aba'; recriadoPelaOutra.atualizadoEm = new Date(Date.now() + 300000).toISOString();
   a.respostas.push(function () { a.escreverDisco(a.disco().concat([recriadoPelaOutra])); return true; });   // aceita a recriação; outra aba recriou A antes
   a.disparar(60);
@@ -354,15 +395,15 @@ function outraAbaAltera(a, filtro, mut, seg) { a.escreverDisco(a.disco().map(fun
   igual('aceitar o conflito: versão desta aba gravada', [a.confirms.length, a.disco().filter(function (o) { return o.id === idA; })[0].cliente.nome], [4, 'A local']);
   igual('sem erros de página', a.errosPagina, []);
 })();
-(function () {
+await (async function () {
   // (d) sem nenhuma alteração durante a pergunta: aceitar → UMA gravação, sem repetir a pergunta
-  var s = abaComAExcluidoNoDialogo(), a = s.a;
+  var s = await abaComAExcluidoNoDialogo(), a = s.a;
   a.disparar(60);
   var antes = a.setItems, conf = a.confirms.length;
   a.disparar(60);
   igual('uma gravação, nenhuma pergunta a mais, nada pendente', [a.setItems - antes, a.confirms.length - conf, a.pendentes().length, a.disco().map(function (o) { return o.cliente.nome; }).sort()], [1, 0, 0, ['A local', 'B original']]);
   // recusar a recriação cancela tudo (nada fica pendente)
-  var s2 = abaComAExcluidoNoDialogo(), a2 = s2.a;
+  var s2 = await abaComAExcluidoNoDialogo(), a2 = s2.a;
   a2.respostas.push(false); a2.disparar(60);
   igual('recusar a recriação: nada pendente, disco sem A', [a2.pendentes().length, a2.disco().some(function (o) { return o.id === s2.idA; })], [0, false]);
   igual('sem erros de página', a.errosPagina.concat(a2.errosPagina), []);
@@ -372,8 +413,8 @@ function outraAbaAltera(a, filtro, mut, seg) { a.escreverDisco(a.disco().map(fun
  * Parecer 6 — achado 2: recusar um diálogo posterior cancela a gravação confirmada anterior do mesmo orçamento
  * ===================================================================== */
 console.log('\n--- Parecer 6 — achado 2: recusa posterior cancela a gravação confirmada pendente');
-(function () {
-  var s = abaComConflito(), a = s.a, idA = s.idA;
+await (async function () {
+  var s = await abaComConflito(), a = s.a, idA = s.idA;
   a.abrir('A original'); a.set('o-nome', 'A local v1'); a.disparar(500);
   igual('1ª sobrescrita aceita → pendente', [a.confirms.length, a.pendentes(60).length], [1, 1]);
   var cb1 = a.pendentes(60)[0].fn;
@@ -390,9 +431,9 @@ console.log('\n--- Parecer 6 — achado 2: recusa posterior cancela a gravação
   ok(!!a.linhaLista('A local v2') && a.linhaLista('A local v2').textContent.indexOf('não salvo') > 0, 'A continua na lista marcado "não salvo" com a edição v2');
   igual('sem erros de página', a.errosPagina, []);
 })();
-(function () {
+await (async function () {
   // variante: a recusa acontece em outra pergunta de recriação (A sumiu) — também cancela
-  var s = abaComConflito(), a = s.a, idA = s.idA;
+  var s = await abaComConflito(), a = s.a, idA = s.idA;
   a.abrir('A original'); a.set('o-nome', 'A local v1'); a.disparar(500);
   var cb1 = a.pendentes(60)[0].fn;
   a.escreverDisco(a.disco().filter(function (o) { return o.id !== idA; }));             // outra aba excluiu A
@@ -407,8 +448,8 @@ console.log('\n--- Parecer 6 — achado 2: recusa posterior cancela a gravação
  * Achado 3 pela interface — importar JSON com data impossível é recusado
  * ===================================================================== */
 console.log('\n--- Parecer 5 — achado 3 pela interface: importação com emitidoEm impossível');
-(function () {
-  var a = novaAba();
+await (async function () {
+  var a = await novaAba(await ambiente());
   a.novoOrc('Base', 'RJ'); a.click('orcVoltar');
   var o = a.disco()[0];
   function importar(obj) {
@@ -422,22 +463,256 @@ console.log('\n--- Parecer 5 — achado 3 pela interface: importação com emiti
     ['2026-02-30T12:00:00Z', false], ['2027-02-29T12:00:00Z', false], ['2028-02-29T12:00:00Z', true], ['2026-13-01T00:00:00Z', false],
     ['18/09/2026', false], ['2026-09-01T12:00:00Z', true], ['2026-09-01T12:00:00.000Z', true], ['2026-09-01T12:00:00-03:00', true]
   ];
-  var i = 0;
-  (function prox() {
-    if (i >= casos.length) { igual('sem erros de página', a.errosPagina, []); fim(); return; }
-    var c = casos[i++]; var antes = a.disco().length;
-    var obj = JSON.parse(JSON.stringify(o)); obj.id = 'imp_' + i; obj.status = 'enviado'; obj.emitidoEm = c[0]; obj.enviadoEm = c[0]; obj.cliente.nome = 'Import ' + i;
-    importar(obj).then(function () {
-      var gravou = a.disco().length === antes + 1;
-      igual('importar emitidoEm ' + c[0] + ' → ' + (c[1] ? 'aceito' : 'recusado'), gravou, c[1]);
-      if (!c[1]) ok(/Arquivo inválido: Orçamento malformado: emitidoEm inválido/.test(a.texto('orcListaStatus')), 'mensagem: ' + a.texto('orcListaStatus').slice(0, 70));
-      else { a.click('orcVoltar'); }
-      prox();
-    });
-  })();
+  for (var i = 0; i < casos.length; i++) {
+    var c = casos[i]; var antes = a.disco().length;
+    var obj = JSON.parse(JSON.stringify(o)); obj.id = 'imp_' + (i + 1); obj.status = 'enviado'; obj.emitidoEm = c[0]; obj.enviadoEm = c[0]; obj.cliente.nome = 'Import ' + (i + 1);
+    await importar(obj);
+    var gravou = a.disco().length === antes + 1;
+    igual('importar emitidoEm ' + c[0] + ' → ' + (c[1] ? 'aceito' : 'recusado'), gravou, c[1]);
+    if (!c[1]) ok(/Arquivo inválido: Orçamento malformado: emitidoEm inválido/.test(a.texto('orcListaStatus')), 'mensagem: ' + a.texto('orcListaStatus').slice(0, 70));
+    else { a.click('orcVoltar'); }
+  }
+  igual('sem erros de página', a.errosPagina, []);
 })();
+
+/* =====================================================================
+ * Nuvem — duas "máquinas" (janelas jsdom com cookies próprios) contra o MESMO servidor local (API em memória)
+ * ===================================================================== */
+console.log('\n--- Nuvem: criar numa máquina, aparecer na outra');
+await (async function () {
+  var amb = await ambiente();
+  var A = await novaAba(amb), B = await novaAba(amb);
+  ok(/^Sincronizado/.test(A.texto('hdrSync')), 'cabeçalho mostra sincronizado: ' + A.texto('hdrSync'));
+  igual('nome do usuário no cabeçalho', A.texto('hdrUsuario'), 'Administrador · admin');
+  A.novoOrc('Cliente 1', 'RJ');
+  igual('antes de enviar: 1 pendente', A.w.GM_NUVEM.pendentes(), 1);
+  await A.sync();
+  igual('após sync: nada pendente, versão 1 no servidor', [A.w.GM_NUVEM.pendentes(), (await A.servidor()).map(function (o) { return [o.dados.cliente.nome, o.versao]; })], [0, [['Cliente 1', 1]]]);
+  igual('estado do orçamento nesta máquina: ok', A.w.GM_NUVEM.estadoDe(A.orcAberto().id), 'ok');
+  ok(/Criado por Administrador/.test(A.texto('orc-autoria')) && /versão 1/.test(A.texto('orc-autoria')), 'linha de autoria: ' + A.texto('orc-autoria'));
+  await B.puxar(); B.aba('orcamentos');
+  ok(!!B.linhaLista('Cliente 1'), 'máquina B vê "Cliente 1" na lista após o pull');
+  ok(B.linhaLista('Cliente 1').textContent.indexOf('por Administrador') > 0, 'lista da B mostra quem gravou');
+  // B edita → A (na lista) recebe
+  B.abrir('Cliente 1'); B.set('o-nome', 'Cliente 1 (B)'); B.disparar(500); await B.sync();
+  igual('servidor: versão 2 pela B', (await A.servidor())[0].versao, 2);
+  A.click('orcVoltar'); await A.puxar();
+  ok(!!A.linhaLista('Cliente 1 (B)'), 'A recebeu a edição da B na lista');
+  igual('versão conhecida pela A = 2', A.syncEstado().versoes[B.orcAberto().id], 2);
+  // A abre; B edita de novo → A é avisada e a versão local NÃO é sobrescrita enquanto aberto
+  A.abrir('Cliente 1 (B)');
+  B.set('o-contato', 'contato B'); B.disparar(500); await B.sync();
+  await A.puxar();
+  ok(/alterado por Administrador .* em outra máquina/.test(A.texto('orcStatus')), 'A avisada: ' + A.texto('orcStatus'));
+  igual('A ainda tem a versão 2 localmente (aberto não é sobrescrito)', [A.syncEstado().versoes[A.orcAberto().id], A.orcAberto().cliente.contato], [2, '']);
+  igual('sem erros de página', A.errosPagina.concat(B.errosPagina), []);
+  await amb.fechar();
+})();
+
+console.log('\n--- Nuvem: conflito 409 — sobrescrever, e recusar → banner com decisão');
+await (async function () {
+  var amb = await ambiente();
+  var A = await novaAba(amb), B = await novaAba(amb);
+  A.novoOrc('Conflito', 'RJ'); await A.sync();
+  await B.puxar(); B.aba('orcamentos'); B.abrir('Conflito'); B.set('o-nome', 'Conflito (B)'); B.disparar(500); await B.sync();
+  // A (versão velha aberta) edita → 409 → aceita sobrescrever
+  A.set('o-nome', 'Conflito (A)'); A.disparar(500);
+  A.respostas.push(true);
+  await A.sync();
+  igual('diálogo de conflito citou quem e "outra máquina"', [A.confirms.length, /alterado por Administrador .*outra máquina/.test(A.confirms[0])], [1, true]);
+  igual('A sobrescreveu: servidor v3 = versão da A', (await A.servidor()).map(function (o) { return [o.dados.cliente.nome, o.versao]; }), [['Conflito (A)', 3]]);
+  await B.puxar();
+  ok(/alterado por Administrador/.test(B.texto('orcStatus')), 'B (com o orçamento aberto) foi avisada');
+  // B agora edita → conflito → RECUSA → vira estado "conflito" visível
+  B.set('o-contato', 'x'); B.disparar(500);
+  B.respostas.push(false);
+  await B.sync();
+  igual('recusou: estado conflito, nada pendente', [B.w.GM_NUVEM.estadoDe(B.orcAberto().id), B.w.GM_NUVEM.pendentes()], ['conflito', 0]);
+  ok(!B.$('orc-conflito').classList.contains('hidden') && /Conflito:/.test(B.texto('orc-conflito')), 'banner de conflito no editor: ' + B.texto('orc-conflito').slice(0, 80));
+  ok(/conflito/.test(B.texto('hdrSync')), 'cabeçalho avisa conflito: ' + B.texto('hdrSync'));
+  B.click('orcVoltar');
+  ok(/conflito/.test(B.linhaLista('Conflito').textContent), 'badge "conflito" na lista');
+  // decide: usar a versão do servidor
+  B.abrir('Conflito');
+  var btn = Array.prototype.filter.call(B.$('orc-conflito').querySelectorAll('button'), function (b) { return /Usar a versão do servidor/.test(b.textContent); })[0];
+  btn.click(); await esperar(50);
+  igual('versão do servidor carregada: nome da A, contato vazio, versão 3', [B.orcAberto().cliente.nome, B.orcAberto().cliente.contato, B.syncEstado().versoes[B.orcAberto().id]], ['Conflito (A)', '', 3]);
+  igual('banner sumiu', B.$('orc-conflito').classList.contains('hidden'), true);
+  // e agora a variante "enviar a minha versão"
+  B.set('o-contato', 'de novo'); B.disparar(500); await B.sync();
+  igual('sem conflito (versão base certa): servidor v4', (await B.servidor())[0].versao, 4);
+  A.set('o-contato', 'A2'); A.disparar(500); A.respostas.push(false); await A.sync();
+  igual('A em conflito', A.w.GM_NUVEM.estadoDe(A.orcAberto().id), 'conflito');
+  var btn2 = Array.prototype.filter.call(A.$('orc-conflito').querySelectorAll('button'), function (b) { return /Enviar a minha versão/.test(b.textContent); })[0];
+  btn2.click(); await A.sync();
+  igual('A enviou a sua versão: v5 com contato A2', (await A.servidor()).map(function (o) { return [o.versao, o.dados.cliente.contato]; }), [[5, 'A2']]);
+  igual('sem erros de página', A.errosPagina.concat(B.errosPagina), []);
+  await amb.fechar();
+})();
+
+console.log('\n--- Nuvem: exclusão em outra máquina e recriação (410)');
+await (async function () {
+  var amb = await ambiente();
+  var A = await novaAba(amb), B = await novaAba(amb);
+  A.novoOrc('Some', 'RJ'); A.click('orcVoltar'); A.novoOrc('Fica', 'RJ'); A.click('orcVoltar'); await A.sync();
+  await B.puxar(); B.aba('orcamentos');
+  B.excluirDaLista('Some'); await B.sync();
+  igual('servidor: só "Fica" vivo', (await A.servidor()).map(function (o) { return o.dados.cliente.nome; }), ['Fica']);
+  await A.puxar();
+  igual('A (na lista) perdeu "Some"', [A.linhaLista('Some'), !!A.linhaLista('Fica')], [null, true]);
+  // A abre "Fica"; B exclui; A é avisada; A salva → 410 → aceita recriar
+  A.abrir('Fica');
+  B.excluirDaLista('Fica'); await B.sync();
+  await A.puxar();
+  ok(/excluído por Administrador .* em outra máquina/.test(A.texto('orcStatus')), 'A avisada da exclusão: ' + A.texto('orcStatus'));
+  A.set('o-contato', 'recriado'); A.disparar(500); A.respostas.push(true); await A.sync();
+  igual('diálogo de recriação', /foi excluído por Administrador .*OK = recriar/.test(A.confirms[A.confirms.length - 1].replace(/\n/g, ' ')), true);
+  igual('servidor: "Fica" recriado com o contato', (await A.servidor()).map(function (o) { return [o.dados.cliente.nome, o.dados.cliente.contato]; }), [['Fica', 'recriado']]);
+  await B.puxar();
+  ok(!!B.linhaLista('Fica'), 'B vê "Fica" de volta');
+  // variante: recusar recriar → estado "excluído em outra máquina" → remover deste computador
+  B.excluirDaLista('Fica'); await B.sync();
+  A.set('o-contato', 'de novo'); A.disparar(500); A.respostas.push(false); await A.sync();
+  igual('estado excluido-remoto', A.w.GM_NUVEM.estadoDe(A.orcAberto().id), 'excluido-remoto');
+  var btn = Array.prototype.filter.call(A.$('orc-conflito').querySelectorAll('button'), function (b) { return /Remover deste computador/.test(b.textContent); })[0];
+  btn.click(); await esperar(50);
+  igual('removido: lista da A vazia, editor fechado', [A.disco().length, A.$('orc-editor').classList.contains('hidden')], [0, true]);
+  igual('sem erros de página', A.errosPagina.concat(B.errosPagina), []);
+  await amb.fechar();
+})();
+
+console.log('\n--- Nuvem: sem conexão (fila) e sessão perdida');
+await (async function () {
+  var amb = await ambiente();
+  var A = await novaAba(amb);
+  A.rede = false;
+  A.novoOrc('Offline', 'RJ'); await A.sync();
+  ok(/Sem conexão/.test(A.texto('hdrSync')) && /1 alteração/.test(A.texto('hdrSync')), 'status sem conexão: ' + A.texto('hdrSync'));
+  igual('fila com 1, servidor vazio', [A.w.GM_NUVEM.pendentes(), (await (async function () { A.rede = true; var r = await A.servidor(); A.rede = false; return r; })()).length], [1, 0]);
+  A.set('o-contato', 'ainda offline'); A.disparar(500); await A.sync();
+  igual('duas edições viram um único envio pendente', A.w.GM_NUVEM.pendentes(), 1);
+  A.rede = true; await A.sync();
+  igual('voltou a conexão: enviado com a última versão', (await A.servidor()).map(function (o) { return [o.dados.cliente.nome, o.dados.cliente.contato, o.versao]; }), [['Offline', 'ainda offline', 1]]);
+  ok(/^Sincronizado/.test(A.texto('hdrSync')), 'status: ' + A.texto('hdrSync'));
+  // sessão encerrada no servidor (ex.: senha redefinida) → tela de login com aviso; nada perdido
+  await amb.ctx.repo.apagarSessoesDoUsuario(1, null);
+  A.set('o-contato', 'depois'); A.disparar(500); await A.sync();
+  igual('tela de login reaparece com aviso', [A.$('login').classList.contains('hidden'), /sessão expirou/.test(A.texto('loginErro'))], [false, true]);
+  igual('alteração continua na fila local', A.w.GM_NUVEM.pendentes(), 1);
+  igual('sem erros de página', A.errosPagina, []);
+  await amb.fechar();
+})();
+
+console.log('\n--- Nuvem: migração dos orçamentos que estavam só no navegador');
+await (async function () {
+  var amb = await ambiente();
+  var base = O.novoOrcamento(D.config, { nome: 'Antigo 1', uf: 'RJ' }); var base2 = O.novoOrcamento(D.config, { nome: 'Antigo 2', uf: 'SP' });
+  var A = await novaAba(amb);
+  A.novoOrc('Já na nuvem', 'RJ'); A.click('orcVoltar'); await A.sync();
+  var C = await novaAba(amb, { disco: [base, base2] });          // máquina antiga: 2 orçamentos locais, sem estado de sync
+  C.aba('orcamentos');
+  igual('carga inicial: locais marcados "só neste computador" e o da nuvem chegou', [C.w.GM_NUVEM.locaisNaoEnviados().map(function (o) { return o.cliente.nome; }).sort(), !!C.linhaLista('Já na nuvem')], [['Antigo 1', 'Antigo 2'], true]);
+  igual('badge e card de migração', [/só neste computador/.test(C.linhaLista('Antigo 1').textContent), C.$('orc-migracao').classList.contains('hidden')], [true, false]);
+  C.click('orcMigrar'); await esperar(200);
+  ok(/Enviados: 2 novo/.test(C.texto('orcMigracaoStatus')), 'relatório: ' + C.texto('orcMigracaoStatus'));
+  igual('servidor com os 3', (await A.servidor()).map(function (o) { return o.dados.cliente.nome; }).sort(), ['Antigo 1', 'Antigo 2', 'Já na nuvem']);
+  igual('card de migração some; estados ok', [C.$('orc-migracao').classList.contains('hidden'), C.w.GM_NUVEM.estadoDe(base.id)], [true, 'ok']);
+  await A.puxar(); ok(!!A.linhaLista('Antigo 2'), 'A recebeu os migrados');
+  // migrar de novo com um id já existente e conteúdo diferente → cópia
+  var base1b = JSON.parse(JSON.stringify(base)); base1b.cliente.nome = 'Antigo 1 alterado noutro pc';
+  var Dm = await novaAba(amb, { disco: [base1b] }); Dm.aba('orcamentos');
+  igual('id já existente com conteúdo diferente: a cópia local ganha id novo e fica "só neste computador"; o id original recebe a do servidor',
+    [Dm.w.GM_NUVEM.locaisNaoEnviados().map(function (o) { return o.cliente.nome; }), Dm.disco().filter(function (o) { return o.id === base.id; })[0].cliente.nome],
+    [['Antigo 1 alterado noutro pc (cópia deste computador)'], 'Antigo 1']);
+  Dm.click('orcMigrar'); await esperar(200);
+  ok(/Enviados: 1 novo/.test(Dm.texto('orcMigracaoStatus')), 'relatório: ' + Dm.texto('orcMigracaoStatus'));
+  igual('servidor com 4 (nada perdido)', (await A.servidor()).length, 4);
+  igual('sem erros de página', A.errosPagina.concat(C.errosPagina, Dm.errosPagina), []);
+  await amb.fechar();
+})();
+
+console.log('\n--- Nuvem: usuários, permissões e configuração compartilhada');
+await (async function () {
+  var amb = await ambiente();
+  var A = await novaAba(amb);
+  A.aba('usuarios');
+  igual('aba Usuários visível para admin', A.doc.querySelector('nav.tabs button[data-tab="usuarios"]').classList.contains('hidden'), false);
+  A.set('u-nome', 'Vendedor'); A.set('u-email', 'vend@maisglass.local'); A.click('uCriar'); await esperar(150);
+  var senhaInicial = A.texto('uSenha');
+  igual('usuário criado com senha inicial mostrada', [A.texto('uStatus'), senhaInicial.length], ['Usuário criado.', 12]);
+  await esperar(100);
+  ok(A.texto('u-tabela').indexOf('vend@maisglass.local') >= 0 && /senha inicial pendente/.test(A.texto('u-tabela')), 'tabela lista o vendedor com senha pendente');
+  // vendedor entra: tela de login → troca de senha obrigatória → app
+  var V = await novaAba(amb, { login: null });
+  igual('tela de login', V.$('login').classList.contains('hidden'), false);
+  V.set('loginEmail', 'vend@maisglass.local'); V.set('loginSenha', 'errada'); V.click('loginBtn'); await esperar(150);
+  igual('senha errada: mensagem genérica', V.texto('loginErro'), 'E-mail ou senha incorretos.');
+  V.set('loginSenha', senhaInicial); V.click('loginBtn'); await esperar(200);
+  igual('senha inicial: pede nova senha', V.$('trocaSenhaForm').classList.contains('hidden'), false);
+  V.set('novaSenha1', 'vendedor123'); V.set('novaSenha2', 'vendedor123'); V.click('trocaSenhaBtn');
+  for (var i = 0; i < 100 && !V.w.GM_NUVEM.carregou(); i++) await esperar(20);
+  igual('app aberto como vendedor', [V.$('app').classList.contains('hidden'), V.texto('hdrUsuario')], [false, 'Vendedor']);
+  igual('aba Usuários escondida; configuração só leitura', [V.doc.querySelector('nav.tabs button[data-tab="usuarios"]').classList.contains('hidden'), V.$('cfgSomenteLeitura').classList.contains('hidden'), V.$('cfgSalvar').classList.contains('hidden'), V.doc.querySelector('[data-cfg="dolar"]').disabled], [true, false, true, true]);
+  // admin muda o dólar → vendedor recebe
+  A.aba('config');
+  var dolar = A.doc.querySelector('[data-cfg="dolar"]'); dolar.value = '6.10'; dolar.dispatchEvent(new A.w.Event('input', { bubbles: true })); A.disparar(500); await A.sync();
+  igual('config no servidor com dólar 6,10', (await (async function () { var r = await A.w.fetch('/api/config', { headers: { 'X-Requested-With': 'MaisGlass' } }); return (await r.json()).dados.dolar; })()), 6.1);
+  await V.puxar();
+  igual('vendedor recebeu o dólar novo no cabeçalho', V.texto('hdrDolar'), 'Dólar 6,10');
+  // vendedor cria orçamento (permitido) e o admin vê quem criou
+  V.novoOrc('Do vendedor', 'RJ'); await V.sync();
+  await A.puxar(); A.aba('orcamentos');
+  ok(A.linhaLista('Do vendedor') && /por Vendedor/.test(A.linhaLista('Do vendedor').textContent), 'admin vê "por Vendedor"');
+  igual('sem erros de página', A.errosPagina.concat(V.errosPagina), []);
+  await amb.fechar();
+})();
+
+
+console.log('\n--- Nuvem: endereço antigo sem servidor → cópia de segurança → importar no novo');
+await (async function () {
+  var amb = await ambiente();
+  var o1 = O.novoOrcamento(D.config, { nome: 'Do GitHub Pages 1', uf: 'RJ' }), o2 = O.novoOrcamento(D.config, { nome: 'Do GitHub Pages 2', uf: 'MG' });
+  var cfgAntiga = JSON.parse(JSON.stringify(D.config)); cfgAntiga.dolar = 5.99;
+  // "GitHub Pages": sem API (404 em HTML)
+  var G = await novaAba(amb, { login: null, disco: [o1, o2], config: cfgAntiga });
+  var baixado = null;
+  G.w.URL.createObjectURL = function (blob) { baixado = blob; return 'blob:x'; };
+  G.w.fetch = function () { return Promise.resolve(new Response('<html>404</html>', { status: 404, headers: { 'Content-Type': 'text/html' } })); };
+  G.w.GM_NUVEM.sessao().catch(function () {});
+  // recarrega a lógica da tela de entrada com o fetch "sem servidor"
+  G.w.document.dispatchEvent(new G.w.Event('DOMContentLoaded')); await esperar(100);
+  ok(/Servidor indisponível/.test(G.texto('loginErro')), 'mensagem: ' + G.texto('loginErro'));
+  igual('caixa de cópia de segurança aparece', G.$('loginBackup').classList.contains('hidden'), false);
+  ok(/2 orçamento\(s\) e uma configuração/.test(G.texto('loginBackupTexto')), 'texto: ' + G.texto('loginBackupTexto'));
+  G.click('loginBackupBtn');
+  var conteudo = JSON.parse(await baixado.text());
+  igual('arquivo com os 2 orçamentos e a configuração', [conteudo.tipo, conteudo.orcamentos.length, conteudo.config.dolar], ['maisglass-backup', 2, 5.99]);
+  // app novo (Vercel): importa o arquivo em Orçamentos
+  var A = await novaAba(amb);
+  A.aba('orcamentos');
+  var f = new A.w.File([JSON.stringify(conteudo)], 'backup.json', { type: 'application/json' });
+  var input = A.$('orcArquivo'); Object.defineProperty(input, 'files', { value: [f], configurable: true }); input.dispatchEvent(new A.w.Event('change'));
+  await esperar(80);
+  ok(/Cópia de segurança importada: 2 orçamento/.test(A.texto('orcListaStatus')), 'status: ' + A.texto('orcListaStatus'));
+  await A.sync();
+  igual('os dois foram para o servidor', (await A.servidor()).map(function (o) { return o.dados.cliente.nome; }).sort(), ['Do GitHub Pages 1', 'Do GitHub Pages 2']);
+  // configuração do arquivo na aba Configurações (admin)
+  A.aba('config');
+  var fc = new A.w.File([JSON.stringify(conteudo)], 'backup.json', { type: 'application/json' });
+  var ic = A.$('cfgArquivo'); Object.defineProperty(ic, 'files', { value: [fc], configurable: true }); ic.dispatchEvent(new A.w.Event('change'));
+  await esperar(80);
+  ok(/Arquivo carregado/.test(A.texto('cfgStatus')), 'config do backup carregada: ' + A.texto('cfgStatus'));
+  A.click('cfgSalvar'); await A.sync();
+  igual('dólar da configuração antiga no servidor', (await (async function () { var r = await A.w.fetch('/api/config', { headers: { 'X-Requested-With': 'MaisGlass' } }); return (await r.json()).dados.dolar; })()), 5.99);
+  igual('sem erros de página', A.errosPagina, []);
+  await amb.fechar();
+})();
+
+fim();
+})().catch(function (e) { console.error('ERRO NO SCRIPT:', e && e.stack || e); process.exit(1); });
 
 function fim() {
   console.log('\n' + (falhas.length ? 'FALHAS: ' + falhas.length + ' de ' + total : 'Todos os testes de interface passaram (' + total + ' verificações).'));
   if (falhas.length) { falhas.forEach(function (f) { console.log('  - ' + f); }); process.exit(1); }
+  process.exit(0);
 }

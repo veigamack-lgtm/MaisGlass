@@ -1,57 +1,117 @@
 # MaisGlass — Calculadora
 
-Calculadora de precificação de vidro importado, portada da planilha
-**"MaxiBuild Vidro Automatica Corte atualizado.xlsx"**. Página única, sem
-build, sem servidor: abre direto no navegador ou publica no GitHub Pages.
+Calculadora de precificação de vidro (importação direta, revenda de importado,
+indústria nacional) com módulo de **Orçamentos**, portada da planilha
+**"MaxiBuild Vidro Automatica Corte atualizado.xlsx"**. Front-end sem build
+(HTML + JS) com um back-end pequeno em **funções da Vercel** e banco
+**Postgres no Neon**: login por pessoa, configuração única da empresa e lista
+de orçamentos compartilhada entre os computadores.
+
+Endereço: **https://mais-glass.vercel.app** (domínio próprio pode ser apontado
+depois em Vercel → Domains).
 
 ## Arquivos
 
 | Arquivo | Função |
 |---|---|
-| `index.html` | Interface (login, Início, três calculadoras, Orçamentos, Configurações). CSS embutido, inclusive o de impressão da proposta. |
+| `index.html` | Interface (login, Início, três calculadoras, Orçamentos, Configurações, Usuários). CSS embutido, inclusive o de impressão da proposta. |
 | `calc.js` | Motor de cálculo puro (sem DOM). Cada fórmula cita a célula da planilha de origem. |
 | `defaults.js` | Valores padrão: produtos, classes fiscais + NCM, despesas nacionais, entreposto, cartão, DIFAL. É o "Restaurar padrão". |
-| `orcamento.js` | Motor do módulo Orçamentos (puro): consolida itens das três calculadoras, custos internos, DRE real × presumido. |
-| `app.js` | Liga interface ↔ motores; login; localStorage; exportar/importar JSON; aba Orçamentos e proposta impressa. |
-| `test/test.js` | Testes de regressão do motor (planilha, memorial da contadora, orçamentos). `node test/test.js` — 565 verificações, sem dependências |
-| `test/ui.js` | Testes da interface do módulo Orçamentos em Node com jsdom (`npm i` e `node test/ui.js`) — carrega `index.html` + scripts reais com timers e `confirm()` controlados; 122 verificações, sai com código 1 se falhar |
-| `test/browser/` | Scripts Playwright assert-based (fluxo completo, reprodução dos pareceres nº 3 a 6, impressão) — `node test/browser/todos.js`; ver `test/browser/README.md` |
-| `package.json` | Só scripts de teste e devDependencies (jsdom, playwright); o site continua estático, sem build |
+| `orcamento.js` | Motor do módulo Orçamentos (puro): consolida itens das três calculadoras, custos internos, DRE real × presumido. Usado também pelo servidor para validar. |
+| `app.js` | Liga interface ↔ motores; login; cache local; exportar/importar JSON; aba Orçamentos, proposta impressa, aba Usuários. |
+| `nuvem.js` | Sincronização com o servidor: fila de envio, recebimento periódico, conflito por versão (409/410), migração de orçamentos locais. |
+| `api/` | Funções da Vercel (Node). `api/_lib/app.js` tem todas as rotas e regras; `repositorio.js` fala com o Neon (e tem uma versão em memória para testes); `auth.js` senhas/sessões; `validar.js` usa os motores. |
+| `vercel.json` | Região das funções em São Paulo (`gru1`, ao lado do banco), instalação só das dependências de produção, cabeçalhos de segurança. |
+| `package.json` | Dependência de produção: `@neondatabase/serverless`. Dependências de teste: jsdom, pg, playwright. |
+| `test/test.js` | Motor (planilha, memorial da contadora, orçamentos): `node test/test.js` — 565 verificações, sem dependências. |
+| `test/api.js` | API contra o servidor local em memória: `node test/api.js` — 69 verificações. Com `PG_TESTE_URL=postgres://…` roda o mesmo contra um Postgres de verdade (usa `pg`; **nunca** aponte para o banco de produção — ele apaga as tabelas). |
+| `test/ui.js` | Interface em jsdom com o servidor local: duas "máquinas", conflitos, exclusão, fila sem rede, migração, usuários, cópia de segurança — 197 verificações. |
+| `test/browser/` | Playwright (Chromium) assert-based, cada script sobe o próprio servidor local — `node test/browser/todos.js`; ver `test/browser/README.md`. |
+| `test/servidor-local.js` | Servidor local: arquivos + a mesma API com banco em memória. `node test/servidor-local.js` → http://localhost:8765 (admin@maisglass.local / admin12345). |
 
-## Como publicar (GitHub Pages)
+## Publicação (Vercel + Neon)
 
-1. Crie um repositório e envie estes arquivos para a raiz (ou pasta `docs/`).
-2. Settings → Pages → Source: branch `main`, pasta `/` (ou `/docs`).
-3. O link fica `https://<usuario>.github.io/<repositorio>/`.
+O código fica no GitHub (`veigamack-lgtm/MaisGlass`); a Vercel publica
+sozinha a cada commit na branch `main`. Configuração feita uma vez no
+projeto `mais-glass` da Vercel → **Settings → Environment Variables**:
 
-Também funciona abrindo `index.html` direto do computador ou em qualquer
-hospedagem estática (Netlify, Vercel, Cloudflare Pages).
+| Variável | Valor |
+|---|---|
+| `DATABASE_URL` | Connection string do projeto `maisglass` no Neon (Connect → Connection string, pooled). Só na Vercel — nunca em arquivo, chat ou e-mail. |
+| `ADMIN_EMAIL` | E-mail do primeiro administrador. |
+| `ADMIN_SENHA_INICIAL` | Senha provisória do primeiro administrador; trocada obrigatoriamente no primeiro login. |
 
-## Senha (bloqueio local, não é autenticação)
+Na primeira chamada o servidor cria as tabelas (se não existirem) e, se não
+houver nenhum usuário, cria o administrador com essas duas variáveis. Depois
+disso as variáveis `ADMIN_*` não são mais usadas (podem ficar). Conferência:
+`https://mais-glass.vercel.app/api/saude` deve responder `{"ok":true,…}`.
 
-Senha padrão: **`glassmais`** — troque antes de divulgar o link:
+O endereço antigo do GitHub Pages deve ser desligado depois da transição
+(GitHub → Settings → Pages → Source: None). Enquanto estiver no ar com o
+código novo, ele não tem servidor: a tela de entrada mostra "Servidor
+indisponível" e oferece **"Baixar cópia de segurança deste navegador"** — um
+arquivo com os orçamentos e a configuração que estavam guardados naquele
+endereço, para importar no novo (Orçamentos → Importar JSON; Configurações →
+Importar JSON).
 
-1. Aba Configurações → "Senha de administrador" → digite a nova senha → "Gerar hash".
-2. Copie o hash e substitua a constante `SENHA_HASH` no início de `app.js`.
-3. Publique de novo.
+## Acesso e usuários
 
-O que isso é: um bloqueio contra acesso casual. A verificação acontece no
-navegador (SHA-256, com Web Crypto ou implementação local quando o contexto
-não é seguro). Quem abrir o código vê o hash e pode tentar senhas offline;
-quem souber mexer no console consegue pular a tela. Portanto, **preços e
-configurações publicados aqui não devem ser tratados como confidenciais**.
-Login de verdade e configurações compartilhadas exigem um backend simples
-(ex.: Supabase).
+- Cada pessoa entra com **e-mail e senha**. Senhas guardadas com `scrypt`
+  (sal por usuário); sessão em cookie `HttpOnly`/`Secure`/`SameSite=Lax` de
+  30 dias, renovado com o uso; no banco só o hash do token. Toda alteração
+  exige o cabeçalho `X-Requested-With: MaisGlass` (proteção contra CSRF).
+  Após 10 senhas erradas em 15 minutos (por e-mail ou IP), bloqueio de 15
+  minutos.
+- **Administrador**: tudo — aba **Usuários** (criar, redefinir senha,
+  desativar/reativar, tornar admin), Configurações e orçamentos. Não é
+  possível desativar a si mesmo nem remover o último administrador.
+- **Usuário**: cria, edita e exclui orçamentos (a lista é de todos);
+  Configurações só leitura.
+- Senha inicial (novo usuário ou redefinida) é gerada pelo sistema, mostrada
+  uma vez ao administrador e **trocada obrigatoriamente** no primeiro login.
+  Trocar a senha ou desativar o usuário encerra as sessões dele nas outras
+  máquinas. Botão **Senha** no topo para trocar a própria senha.
 
-## Onde ficam as configurações
+## Onde ficam os dados
 
-Na aba Configurações tudo é editável e **salva automaticamente** (meio
-segundo depois de digitar, se a configuração for válida; o status no topo
-confirma a hora). Fica em `localStorage` do navegador (chave
-`glassmais.config.v1`), ou seja, **por aparelho**: o dólar mudado no
-computador não aparece sozinho no celular. Para levar para outro computador
-ou outra pessoa: **Exportar (JSON)** → **Importar (JSON)** → Salvar.
-"Restaurar padrão" volta aos valores de `defaults.js`.
+- **Configuração** (dólar, produtos, alíquotas, DIFAL, dados da empresa): uma
+  só para a empresa, no servidor, com versão. Administradores editam (salva
+  automaticamente meio segundo depois de digitar, se for válida); a mudança
+  chega aos outros computadores em até 30 segundos (ou ao voltar para a
+  janela). Orçamentos já feitos não mudam (são congelados).
+- **Orçamentos**: lista única no servidor, com versão, autor e histórico de
+  cada gravação (`orcamentos_hist`). Excluir é lógico (fica registrado quem e
+  quando).
+- **Navegador**: guarda uma cópia (cache) e a fila do que ainda não foi
+  enviado — trabalhar sem internet é possível; ao voltar a conexão tudo é
+  enviado. Limpar os dados do navegador só obriga a baixar de novo.
+- **Exportar/Importar (JSON)** continuam valendo para backup e troca de
+  arquivos; Importar aceita também o arquivo de cópia de segurança com vários
+  orçamentos.
+
+### Sincronização e conflitos entre computadores
+
+- Cada gravação local entra numa fila e é enviada em série com a versão que
+  este computador conhece (`versaoBase`). Entre abas do mesmo navegador a
+  fila é compartilhada e um lock (`navigator.locks`) evita envios em paralelo.
+- **409 — alterado em outra máquina**: o app pergunta "alterado por Fulano às
+  HH:MM em outra máquina — sobrescrever?". OK sobrescreve (a decisão vale para
+  a versão vista; se mudar de novo, pergunta de novo). Cancelar deixa o
+  orçamento marcado **"conflito"**; ao abri-lo, um aviso oferece "Enviar a
+  minha versão" ou "Usar a versão do servidor".
+- **410 — excluído em outra máquina**: pergunta se recria; cancelar deixa
+  marcado e o aviso oferece recriar ou remover deste computador.
+- **Recebimento**: a cada 30 s, ao voltar para a janela e ao reconectar. O
+  orçamento **aberto** nunca é trocado por baixo: aparece o aviso e a próxima
+  gravação pergunta.
+- **Migração**: no primeiro login de um computador que tinha orçamentos só no
+  navegador, aparece o quadro **"Enviar para a nuvem"**. Se um id já existir
+  no servidor com conteúdo diferente, a cópia local ganha um id novo ("(cópia
+  deste computador)") — nada é descartado.
+- Proteções: se o navegador recusar gravar (armazenamento cheio), o estado de
+  sincronização segue em memória; uma mesma alteração não é reenviada mais
+  de 5 vezes seguidas (vira "não aceito pelo servidor", visível no
+  orçamento).
 
 ## Ajuda nos campos ("?")
 
@@ -279,7 +339,9 @@ Compõe um orçamento para um cliente com itens das três calculadoras. Regras
   inclusões, observações. Vale o total de cada item (nota quando unitário × m²
   difere); FCP não cadastrado em item de importação direta gera ressalva
   "adicional estadual será confirmado na emissão da nota fiscal".
-- **Persistência**: `localStorage` `glassmais.orcamentos.v1` (lista), autosave
+- **Persistência local** (1º estágio; o envio ao servidor é o 2º estágio,
+  `nuvem.js`, ver "Onde ficam os dados"): `localStorage`
+  `glassmais.orcamentos.v1` (cache da lista), autosave
   500 ms concluído ao sair do editor/trocar de orçamento/fechar a página; cada
   gravação relê o disco e substitui só o orçamento alterado; conflito com outra
   aba pede confirmação e **nenhuma decisão grava na hora**: toda confirmação

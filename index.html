@@ -98,7 +98,17 @@
   .login .logo { display: inline-flex; align-items: center; gap: 12px; margin: 6px 0 14px; }
   .login .logo-mark { width: 44px; height: 54px; }
   .login .logo-word { font-size: 34px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
-  .login input { text-align: center; }
+  .login input { text-align: center; margin-bottom: 8px; }
+  header .usuario { color: rgba(255,255,255,.85); font-size: 13px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .sync { font-size: 12px; color: rgba(255,255,255,.75); border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: 3px 10px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .sync.ok { border-color: rgba(120,220,150,.6); color: #cfeed8; }
+  header .sync.err { border-color: rgba(255,170,150,.7); color: #ffd4c8; }
+  .orc-conflito { background: #fff4e5; border: 1px solid #f0c78a; border-radius: 10px; padding: 12px 14px; margin: 8px 0 12px; }
+  .orc-conflito .btn { margin-right: 6px; margin-top: 6px; }
+  .tag.st-sync { background: #e8f1fb; color: #1e4f8a; } .tag.st-pend { background: #fff4e5; color: #8a5a00; } .tag.st-conf { background: #fde7e7; color: #a11; } .tag.st-local { background: #eee; color: #555; }
+  .senha-inicial { background: #f3f7ff; border: 1px solid #c9d8f5; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+  .senha-inicial code { font-size: 16px; letter-spacing: 1px; }
+  #tab-config.somente-leitura input, #tab-config.somente-leitura select, #tab-config.somente-leitura textarea { background: #f2f2f2; }
   .logo-word .m { color: var(--gray); } .logo-word .g { color: var(--ink); }
   header .logo { display: flex; align-items: center; gap: 10px; }
   header .logo-mark { width: 26px; height: 32px; }
@@ -192,9 +202,23 @@
 <section id="login" class="login card">
   <div class="logo"><svg class="logo-mark" viewBox="0 0 104 128" aria-hidden="true"><rect x="34" y="0" width="66" height="96" rx="8" fill="#8a8f98"/><rect x="4" y="16" width="66" height="96" rx="8" fill="#1c1f24"/><rect x="4" y="16" width="66" height="96" rx="8" fill="none" stroke="#f3f5f8" stroke-width="3"/><path d="M16 28 L32 28 L20 68 L12 68 Z" fill="#fff" opacity=".28"/><path d="M38 28 L44 28 L32 68 L26 68 Z" fill="#fff" opacity=".18"/></svg><span class="logo-word"><span class="m">Mais</span><span class="g">Glass</span></span></div>
   <p class="hint">Calculadora de preços · área restrita</p>
-  <input type="password" id="loginSenha" placeholder="Senha" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
-  <button class="btn primary" id="loginBtn">Entrar</button>
-  <p id="loginErro" class="status err hidden">Senha incorreta.</p>
+  <div id="loginForm">
+    <input type="email" id="loginEmail" placeholder="E-mail" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <input type="password" id="loginSenha" placeholder="Senha" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <button class="btn primary" id="loginBtn">Entrar</button>
+  </div>
+  <div id="trocaSenhaForm" class="hidden">
+    <p class="hint"><strong>Defina uma nova senha</strong> para continuar (mínimo 8 caracteres).</p>
+    <input type="password" id="novaSenha1" placeholder="Nova senha" autocomplete="new-password">
+    <input type="password" id="novaSenha2" placeholder="Repita a nova senha" autocomplete="new-password">
+    <button class="btn primary" id="trocaSenhaBtn">Salvar nova senha e entrar</button>
+  </div>
+  <p id="loginErro" class="status err hidden"></p>
+  <p id="loginInfo" class="hint">Conectando…</p>
+  <div id="loginBackup" class="hidden" style="margin-top:14px;text-align:left">
+    <p class="hint" id="loginBackupTexto"></p>
+    <button class="btn" id="loginBackupBtn">Baixar cópia de segurança deste navegador</button>
+  </div>
 </section>
 
 <!-- ===================== APP ===================== -->
@@ -204,6 +228,9 @@
     <span class="chip" id="hdrDolar" title="Dólar usado na importação (Configurações)"></span>
     <span class="chip" id="hdrFrete" title="Frete internacional por container (Configurações)"></span>
     <span class="spacer"></span>
+    <span class="sync" id="hdrSync" title="Sincronização com o servidor"></span>
+    <span class="usuario" id="hdrUsuario"></span>
+    <button id="senhaBtn" title="Trocar a minha senha">Senha</button>
     <button id="logoutBtn">Sair</button>
   </header>
   <nav class="tabs">
@@ -213,6 +240,7 @@
     <button data-tab="nacional">Indústria nacional</button>
     <button data-tab="orcamentos">Orçamentos</button>
     <button data-tab="config">Configurações</button>
+    <button data-tab="usuarios" class="hidden">Usuários</button>
   </nav>
 
   <main>
@@ -465,9 +493,15 @@
           <input type="file" id="orcArquivo" accept="application/json" class="hidden">
           <span class="status" id="orcListaStatus"></span>
         </div>
+        <div class="card hidden" id="orc-migracao">
+          <h2>Orçamentos que estão só neste computador</h2>
+          <p class="hint" id="orc-migracao-texto"></p>
+          <button class="btn primary" id="orcMigrar">Enviar para a nuvem</button>
+          <span class="status" id="orcMigracaoStatus"></span>
+        </div>
         <div class="card">
-          <h2>Orçamentos salvos neste navegador</h2>
-          <p class="hint">Cada orçamento guarda os itens congelados como estavam quando foram adicionados, a configuração usada (dólar, alíquotas, cartão) e as premissas da DRE. Ficam neste navegador/aparelho; use Exportar/Importar (JSON) para levar a outro computador ou fazer backup.</p>
+          <h2>Orçamentos da empresa</h2>
+          <p class="hint">Lista única, compartilhada por todos os usuários: o que você salva aqui aparece nos outros computadores em segundos. Cada orçamento guarda os itens congelados como estavam quando foram adicionados, a configuração usada (dólar, alíquotas, cartão) e as premissas da DRE. Exportar/Importar (JSON) continua servindo para backup e para trocar arquivos.</p>
           <div class="table-wrap" id="orc-tabela"></div>
         </div>
       </div>
@@ -484,6 +518,8 @@
           <span class="status" id="orcStatus"></span>
         </div>
         <p class="orc-travado hidden" id="orc-travado"></p>
+        <div class="orc-conflito hidden" id="orc-conflito"></div>
+        <p class="hint" id="orc-autoria"></p>
         <div class="grid">
           <div>
             <div class="card purple" id="orc-cabecalho">
@@ -564,6 +600,7 @@
         <button class="btn danger" id="cfgRestaurar">Restaurar padrão</button>
         <span class="status" id="cfgStatus"></span>
       </div>
+      <p class="hint hidden" id="cfgSomenteLeitura"><strong>Somente leitura:</strong> a configuração é única para a empresa e só administradores podem alterá-la. Peça a um administrador para mudar dólar, produtos ou alíquotas.</p>
 
       <div class="grid">
         <div class="card">
@@ -654,22 +691,39 @@
           </details>
 
           <details>
-            <summary>Senha de administrador</summary>
-            <p class="hint">A senha é validada no navegador (hash SHA-256 gravado no arquivo <code>app.js</code>, constante <code>SENHA_HASH</code>). Gere o hash da nova senha abaixo e substitua no arquivo antes de publicar.</p>
-            <div class="field"><label>Nova senha</label><input type="text" id="novaSenha"></div>
-            <button class="btn small" id="gerarHash">Gerar hash</button>
-            <p class="hint" style="word-break:break-all" id="hashSaida"></p>
+            <summary>Acesso e usuários</summary>
+            <p class="hint">Cada pessoa entra com o próprio e-mail e senha. Administradores cadastram, desativam e redefinem senhas na aba <strong>Usuários</strong>; qualquer usuário troca a própria senha pelo botão "Senha" no topo. A configuração e os orçamentos ficam no servidor (Neon) e aparecem em todos os computadores.</p>
           </details>
         </div>
       </div>
     </section>
+    <!-- ---------- ABA USUÁRIOS (administradores) ---------- -->
+    <section id="tab-usuarios" class="hidden">
+      <div class="grid">
+        <div class="card">
+          <h2>Novo usuário</h2>
+          <p class="hint">O sistema gera uma senha inicial e mostra uma única vez; passe para a pessoa, que troca no primeiro login.</p>
+          <div class="field"><label>Nome</label><input type="text" id="u-nome" placeholder="Nome"></div>
+          <div class="field"><label>E-mail</label><input type="email" id="u-email" placeholder="email@empresa.com.br" autocapitalize="none"></div>
+          <div class="field"><label>Papel</label><select id="u-papel"><option value="usuario">Usuário (orçamentos; configuração só leitura)</option><option value="admin">Administrador (tudo, inclusive usuários e configuração)</option></select></div>
+          <button class="btn primary" id="uCriar">Criar usuário</button>
+          <span class="status" id="uStatus"></span>
+          <div class="senha-inicial hidden" id="uSenhaBox"><strong>Senha inicial de <span id="uSenhaQuem"></span>:</strong> <code id="uSenha"></code> <button class="btn small" id="uCopiar">Copiar</button><p class="hint">Anote agora — não é mostrada de novo. Se perder, use "Redefinir senha" na lista.</p></div>
+        </div>
+        <div class="card">
+          <h2>Usuários</h2>
+          <div class="table-wrap" id="u-tabela"></div>
+        </div>
+      </div>
+    </section>
   </main>
-  <footer>MaisGlass — lógica baseada na planilha "MaxiBuild Vidro Automática Corte". As configurações salvam automaticamente e ficam neste navegador/aparelho; use Exportar/Importar para levar para outro.</footer>
+  <footer>MaisGlass — lógica baseada na planilha "MaxiBuild Vidro Automática Corte". Configurações e orçamentos ficam no servidor da empresa e sincronizam entre os computadores; o navegador guarda uma cópia local para trabalhar rápido.</footer>
 </div>
 
 <script src="defaults.js"></script>
 <script src="calc.js"></script>
 <script src="orcamento.js"></script>
+<script src="nuvem.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

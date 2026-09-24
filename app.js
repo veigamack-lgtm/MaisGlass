@@ -8,13 +8,14 @@
 (function () {
   'use strict';
 
-  /* Senha padrão: "glassmais". Para trocar: aba Configurações → Senha → Gerar hash → colar aqui. */
-  var SENHA_HASH = '530075e3e59e8421492e95e8e114809d8ea642dd2d1de914199df232e48c420a';
+  /* Login: e-mail + senha por pessoa, validados no servidor (api/); sessão em cookie. Ver nuvem.js e PROJETO-NUVEM.md. */
   var STORAGE_KEY = 'glassmais.config.v1';
-  var SESSION_KEY = 'glassmais.auth';
 
   var DEF = window.GM_DEFAULTS;
   var CALC = window.GM_CALC;
+  var NUVEM = window.GM_NUVEM;
+  var usuarioAtual = null;   // { id, email, nome, papel } depois do login
+  function ehAdmin() { return !!usuarioAtual && usuarioAtual.papel === 'admin'; }
   var config;   // configuração ativa (usada pela calculadora)
   var draft;    // cópia em edição na aba Configurações
 
@@ -115,35 +116,75 @@
     catch (e) { console.warn('Não foi possível salvar', e); return false; }
   }
 
-  /* ---------------- login ---------------- */
-  function autenticado() { try { return sessionStorage.getItem(SESSION_KEY) === '1'; } catch (e) { return false; } }
-  function entrar() {
-    var senha = $('loginSenha').value;
-    sha256(senha).then(function (h) {
-      if (h === SENHA_HASH) {
-        try { sessionStorage.setItem(SESSION_KEY, '1'); } catch (e) { /* ignore */ }
-        mostrarApp();
-      } else {
-        $('loginErro').textContent = 'Senha incorreta.';
-        $('loginErro').classList.remove('hidden');
-      }
-    }).catch(function (e) {
-      $('loginErro').textContent = 'Não foi possível verificar a senha: ' + e.message;
-      $('loginErro').classList.remove('hidden');
-    });
+  /* ---------------- login (servidor) ---------------- */
+  var senhaDigitada = '';
+  function loginErro(msg) { var e = $('loginErro'); e.textContent = msg; e.classList.toggle('hidden', !msg); }
+  function loginInfo(msg) { var e = $('loginInfo'); e.textContent = msg || ''; e.classList.toggle('hidden', !msg); }
+  function mostrarLogin() {
+    $('app').classList.add('hidden'); $('login').classList.remove('hidden');
+    $('loginForm').classList.remove('hidden'); $('trocaSenhaForm').classList.add('hidden');
+    loginInfo(''); $('loginBtn').disabled = false;
+    setTimeout(function () { $('loginEmail').focus(); }, 0);
   }
-  function sair() { try { sessionStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ } location.reload(); }
-  function mostrarApp() {
+  function entrar() {
+    var email = $('loginEmail').value.trim(), senha = $('loginSenha').value;
+    if (!email || !senha) { loginErro('Informe e-mail e senha.'); return; }
+    loginErro(''); loginInfo('Entrando…'); $('loginBtn').disabled = true;
+    NUVEM.login(email, senha).then(function (r) {
+      senhaDigitada = senha; $('loginSenha').value = '';
+      loginInfo(''); $('loginBtn').disabled = false;
+      if (r.precisaTrocarSenha) { $('loginForm').classList.add('hidden'); $('trocaSenhaForm').classList.remove('hidden'); $('novaSenha1').focus(); return; }
+      mostrarApp(r.usuario);
+    }).catch(function (e) { loginInfo(''); $('loginBtn').disabled = false; loginErro(e.rede ? 'Sem conexão com o servidor. Verifique a internet e tente de novo.' : e.message); });
+  }
+  function definirSenha() {
+    var a = $('novaSenha1').value, b = $('novaSenha2').value;
+    if (a.length < 8) { loginErro('A nova senha precisa ter pelo menos 8 caracteres.'); return; }
+    if (a !== b) { loginErro('As duas senhas não conferem.'); return; }
+    loginErro(''); loginInfo('Salvando…');
+    NUVEM.trocarSenha(senhaDigitada, a).then(function () {
+      senhaDigitada = ''; $('novaSenha1').value = ''; $('novaSenha2').value = ''; loginInfo('');
+      return NUVEM.sessao();
+    }).then(function (r) { if (r) mostrarApp(r.usuario); else mostrarLogin(); })
+      .catch(function (e) { loginInfo(''); loginErro(e.message); });
+  }
+  function trocarMinhaSenha() {
+    var atual = prompt('Senha atual:'); if (atual === null) return;
+    var nova = prompt('Nova senha (mínimo 8 caracteres):'); if (nova === null) return;
+    var nova2 = prompt('Repita a nova senha:'); if (nova2 === null) return;
+    if (nova !== nova2) { alert('As duas senhas não conferem.'); return; }
+    NUVEM.trocarSenha(atual, nova).then(function () { alert('Senha alterada. As outras máquinas onde você estava conectado vão pedir login de novo.'); })
+      .catch(function (e) { alert('Não foi possível trocar a senha: ' + e.message); });
+  }
+  function sair() {
+    concluirSalvarPendente();
+    if (NUVEM.pendentes() > 0 && !confirm('Há ' + NUVEM.pendentes() + ' alteração(ões) ainda não enviada(s) ao servidor. Sair mesmo assim? (elas continuam guardadas neste computador e são enviadas no próximo login)')) return;
+    NUVEM.logout().then(function () { location.reload(); });
+  }
+  function mostrarApp(usuario) {
+    usuarioAtual = usuario;
     $('login').classList.add('hidden');
     $('app').classList.remove('hidden');
+    $('hdrUsuario').textContent = (usuario.nome || usuario.email) + (usuario.papel === 'admin' ? ' · admin' : '');
     iniciarApp();
+    aplicarPermissoes();
+    iniciarNuvem();
+  }
+  function aplicarPermissoes() {
+    var admin = ehAdmin();
+    document.querySelector('nav.tabs button[data-tab="usuarios"]').classList.toggle('hidden', !admin);
+    var cfg = $('tab-config');
+    cfg.classList.toggle('somente-leitura', !admin);
+    $('cfgSomenteLeitura').classList.toggle('hidden', admin);
+    ['cfgSalvar', 'cfgImportar', 'cfgRestaurar', 'cfgAddProduto'].forEach(function (id) { var b = $(id); if (b) b.classList.toggle('hidden', !admin); });
+    if (!admin) cfg.querySelectorAll('input, select, textarea, button.btn.danger, button.btn.small').forEach(function (i) { if (i.id !== 'cfgExportar' && !i.classList.contains('help')) i.disabled = true; });
   }
 
   /* ---------------- abas ---------------- */
-  var ABAS = ['home', 'calc', 'revenda', 'nacional', 'orcamentos', 'config'];
+  var ABAS = ['home', 'calc', 'revenda', 'nacional', 'orcamentos', 'config', 'usuarios'];
   var abaAtual = 'home';
   function mostrarAba(nome) {
-    if (ABAS.indexOf(nome) < 0) nome = 'home';
+    if (ABAS.indexOf(nome) < 0 || (nome === 'usuarios' && !ehAdmin())) nome = 'home';
     if (abaAtual === 'config' && nome !== 'config' && draft) lerCamposSimples(); // guarda o que foi digitado
     if (abaAtual === 'orcamentos' && nome !== 'orcamentos') concluirSalvarPendente();   // não perde edição pendente
     abaAtual = nome;
@@ -154,6 +195,7 @@
     if (OPS[nome]) recalcularRevenda(OPS[nome]);
     if (nome === 'config') { if (!draft) draft = clone(config); renderConfig(); }
     if (nome === 'orcamentos') { if (orc) { renderCabecalhoOrc(); renderOrc(); } else renderListaOrc(); }
+    if (nome === 'usuarios') renderUsuarios();
     if (ORIGEM_TAB && (nome === 'calc' || OPS[nome])) atualizarBotoesAdd();
   }
 
@@ -998,6 +1040,7 @@
     config = clone(draft);
     draft = clone(config);
     status(salvarConfig(config) ? 'Configurações salvas.' : 'Salvo só nesta sessão (navegador sem armazenamento).', 'ok');
+    NUVEM.configAlterada();
     preencherListas();
     recalcular();
     recalcularOperacoes();
@@ -1010,6 +1053,7 @@
     if (erro) { status('Não salvo — ' + erro, 'err'); return; }
     config = clone(draft);
     var ok = salvarConfig(config);
+    NUVEM.configAlterada();
     preencherListas();
     recalcular();
     recalcularOperacoes();
@@ -1030,7 +1074,7 @@
     var fr = new FileReader();
     fr.onload = function () {
       var candidato;
-      try { candidato = normalizarConfig(JSON.parse(fr.result)); }
+      try { var j = JSON.parse(fr.result); if (j && j.tipo === 'maisglass-backup') { if (!j.config) throw new Error('o arquivo de cópia de segurança não traz configuração.'); j = j.config; } candidato = normalizarConfig(j); }
       catch (e) { status('Arquivo inválido: ' + e.message, 'err'); return; }
       draft = candidato;
       renderConfig();
@@ -1174,6 +1218,8 @@
     if (oAlterado) { orcGravadoEm[oAlterado.id] = oAlterado.atualizadoEm; limparNaoSalvo(oAlterado.id); cancelarGravacaoAdiada(oAlterado.id); }   // gravação concluída supera qualquer decisão pendente deste id
     if (excluirId) limparNaoSalvo(excluirId);
     sincronizarListaOrc(lista);
+    if (oAlterado) NUVEM.alterado(oAlterado.id, confirmadoPara === AUSENTE ? { recriarConfirmado: true } : undefined);   // 2º estágio: envio ao servidor (nuvem.js)
+    if (excluirId) NUVEM.excluido(excluirId);
     if (texto.length > 4 * 1024 * 1024) orcStatus('Atenção: os orçamentos ocupam ' + Math.round(texto.length / 1024 / 1024 * 10) / 10 + ' MB (limite ≈ 5 MB). Exporte e exclua orçamentos antigos.', 'err');
     return true;
   }
@@ -1267,10 +1313,14 @@
       var excluir = el('button', { class: 'btn small danger', text: 'Excluir', onclick: function () { excluirOrc(o.id); } });
       var nomeCel = el('td', {}, [el('strong', { text: orcNome(o) }), el('small', { text: ' nº ' + orcNumero(o), style: 'color:var(--muted)' })]);
       if (naoSalvos[o.id]) nomeCel.appendChild(el('span', { class: 'tag st-perdido', text: 'não salvo', style: 'margin-left:6px', title: 'Alteração desta aba ainda não gravada — abra e salve, ou exporte o JSON' }));
+      var sinc = NUVEM.estadoDe(o.id), meta = NUVEM.metaDe(o.id);
+      var BADGE = { pendente: ['st-pend', 'enviando…', 'Alteração deste computador ainda não confirmada pelo servidor'], conflito: ['st-conf', 'conflito', 'Outra máquina alterou este orçamento — abra para decidir qual versão vale'],
+        'excluido-remoto': ['st-conf', 'excluído em outra máquina', 'Abra para decidir: recriar ou remover deste computador'], erro: ['st-conf', 'não aceito pelo servidor', 'Abra para ver o motivo'], local: ['st-local', 'só neste computador', 'Ainda não enviado à nuvem — use "Enviar para a nuvem" acima'] };
+      if (BADGE[sinc]) nomeCel.appendChild(el('span', { class: 'tag ' + BADGE[sinc][0], text: BADGE[sinc][1], style: 'margin-left:6px', title: BADGE[sinc][2] }));
       return el('tr', {}, [
         nomeCel,
         el('td', { text: 'rev. ' + o.revisao }),
-        el('td', { text: dataHora(o.atualizadoEm) }),
+        el('td', {}, [document.createTextNode(dataHora(o.atualizadoEm)), meta && meta.atualizadoPor ? el('small', { text: ' por ' + meta.atualizadoPor, style: 'color:var(--muted);display:block' }) : document.createTextNode('')]),
         el('td', { text: String(n), style: 'text-align:right' }),
         el('td', { text: total, style: 'text-align:right;font-variant-numeric:tabular-nums' }),
         el('td', { text: liq, style: 'text-align:right;font-variant-numeric:tabular-nums' }),
@@ -1283,6 +1333,22 @@
       el('tbody', {}, linhas)
     ]));
     if (temNaoSalvos()) orcListaStatus('Há orçamento(s) com alteração não gravada nesta aba (marcados "não salvo"): abra e salve, ou exporte o JSON antes de fechar a página.', 'err');
+    renderMigracao();
+  }
+  function renderMigracao() {
+    var card = $('orc-migracao'); if (!card) return;
+    var locais = NUVEM.carregou() ? NUVEM.locaisNaoEnviados() : [];
+    card.classList.toggle('hidden', !locais.length);
+    if (!locais.length) return;
+    $('orc-migracao-texto').textContent = locais.length + ' orçamento(s) deste navegador ainda não estão na nuvem (' + locais.slice(0, 5).map(orcNome).join(', ') + (locais.length > 5 ? '…' : '') + '). Clique para enviar — eles passam a aparecer em todos os computadores. Se algum já existir no servidor com conteúdo diferente, ele entra como cópia.';
+  }
+  function migrarLocais() {
+    var b = $('orcMigrar'); b.disabled = true; var st = $('orcMigracaoStatus'); st.textContent = 'Enviando…'; st.className = 'status';
+    NUVEM.migrarLocais().then(function (r) {
+      var n = { criado: 0, igual: 0, renomeado: 0, invalido: 0 }; r.resultado.forEach(function (x) { n[x.status] = (n[x.status] || 0) + 1; });
+      st.textContent = 'Enviados: ' + n.criado + ' novo(s), ' + n.igual + ' já existente(s), ' + n.renomeado + ' como cópia' + (n.invalido ? ', ' + n.invalido + ' recusado(s) (inválidos)' : '') + '.'; st.className = 'status ok';
+      b.disabled = false; sincronizarListaOrc(lerStorageOrc()); renderListaOrc();
+    }).catch(function (e) { b.disabled = false; st.textContent = 'Não foi possível enviar: ' + e.message; st.className = 'status err'; });
   }
 
   /* ---------- cabeçalho ---------- */
@@ -1325,6 +1391,46 @@
     var banner = $('orc-travado');
     banner.classList.toggle('hidden', !travado);
     if (travado) banner.textContent = 'Proposta emitida em ' + dataHora(orc.emitidoEm) + ' (status: ' + STATUS_ROTULO[orc.status].toLowerCase() + (orc.emissaoOrigem && orc.emissaoOrigem.indexOf('migracao') === 0 ? '; marco recuperado na migração — ' + orc.emissaoOrigem.replace(/^migracao:/, '') : '') + '): cabeçalho, itens, custos e dados da empresa ficam congelados para preservar a versão enviada. Para alterar, use "Nova revisão".';
+    renderConflitoOrc(); renderAutoriaOrc();
+  }
+  /* Conflito com outra máquina (nuvem.js): decisão explícita, sem loop de diálogos */
+  function renderConflitoOrc() {
+    var box = $('orc-conflito'); if (!box || !orc) return;
+    var c = NUVEM.conflito(orc.id);
+    box.classList.toggle('hidden', !c); box.innerHTML = '';
+    if (!c) return;
+    var id = orc.id;
+    function decidir(decisao) {
+      NUVEM.resolverConflito(id, decisao).then(function () {
+        if (decisao === 'servidor') {
+          // descarta a cópia desta aba: autosave pendente, gravação adiada e "não salvo"; a lista é refeita do disco (já com a versão do servidor)
+          clearTimeout(orcTimer); orcTimer = null; orcPendente = null; cancelarGravacaoAdiada(id); limparNaoSalvo(id);
+          orc = null;
+          sincronizarListaOrc(lerStorageOrc());
+          var novo = orcamentos.filter(function (o) { return o.id === id; })[0];
+          if (!novo) { mostrarListaOrc(); orcListaStatus('Orçamento removido deste computador (estava excluído no servidor).', 'ok'); return; }
+          abrirOrc(id); orcStatus('Versão do servidor carregada.', 'ok');
+        } else { renderOrc(); orcStatus('Sua versão está sendo enviada ao servidor…', ''); }
+      });
+    }
+    if (c.tipo === 'versao') {
+      box.appendChild(el('p', {}, [el('strong', { text: 'Conflito: ' }), document.createTextNode('este orçamento foi alterado por ' + (c.atualizadoPor || 'outra pessoa') + ' em ' + dataHora(c.atualizadoEm) + ' em outra máquina, e esta máquina tem uma versão diferente. Qual vale?')]));
+      box.appendChild(el('button', { class: 'btn small primary', text: 'Enviar a minha versão (sobrescreve a do servidor)', onclick: function () { decidir('minha'); } }));
+      box.appendChild(el('button', { class: 'btn small', text: 'Usar a versão do servidor (descarta a minha)', onclick: function () { if (confirm('A versão deste computador será substituída pela do servidor. Continuar?')) decidir('servidor'); } }));
+      box.appendChild(el('p', { class: 'hint', text: 'Dica: "Exportar JSON" antes de decidir guarda a sua versão num arquivo.' }));
+    } else if (c.tipo === 'excluido') {
+      box.appendChild(el('p', {}, [el('strong', { text: 'Excluído em outra máquina: ' }), document.createTextNode('por ' + (c.excluidoPor || 'outra pessoa') + ' em ' + dataHora(c.excluidoEm) + '. Esta cópia continua aqui.')]));
+      box.appendChild(el('button', { class: 'btn small primary', text: 'Recriar no servidor com esta versão', onclick: function () { decidir('minha'); } }));
+      box.appendChild(el('button', { class: 'btn small danger', text: 'Remover deste computador também', onclick: function () { if (confirm('Remover este orçamento deste computador?')) decidir('servidor'); } }));
+    } else {
+      box.appendChild(el('p', {}, [el('strong', { text: 'Não aceito pelo servidor: ' }), document.createTextNode(c.mensagem || 'erro')]));
+      box.appendChild(el('button', { class: 'btn small primary', text: 'Tentar enviar de novo', onclick: function () { decidir('minha'); } }));
+    }
+  }
+  function renderAutoriaOrc() {
+    var p = $('orc-autoria'); if (!p || !orc) return;
+    var m = NUVEM.metaDe(orc.id);
+    p.textContent = m ? ('Criado por ' + (m.criadoPor || '—') + (m.criadoEm ? ' em ' + dataHora(m.criadoEm) : '') + ' · última gravação no servidor por ' + (m.atualizadoPor || '—') + ' em ' + dataHora(m.atualizadoEm) + ' (versão ' + m.versao + ')') : 'Ainda não enviado ao servidor.';
   }
   /* campos de texto/condições que não mudam o cálculo */
   function lerCabecalhoTexto() {
@@ -1722,39 +1828,54 @@
     var a = el('a', { href: URL.createObjectURL(blob), download: nome });
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   }
+  /* Aceita um orçamento (objeto) ou um arquivo de cópia de segurança com vários ({ tipo: 'maisglass-backup', orcamentos: [...] }
+   * ou uma lista), como o gerado na tela de entrada quando o endereço antigo não tem servidor. */
   function importarOrc(file) {
     var fr = new FileReader();
     fr.onload = function () {
-      var o;
-      try {
-        o = ORC.migrarOrcamento(JSON.parse(fr.result));
-        var erros = ORC.validarOrcamento(o);
-        if (erros.length) throw new Error(erros.slice(0, 4).join(' '));
-      } catch (e) { orcListaStatus('Arquivo inválido: ' + e.message, 'err'); return; }
-      // Nada que veio do arquivo entra na conta: cada item é recalculado com a configuração congelada do próprio
-      // arquivo e o resultado recalculado SUBSTITUI o importado; divergências viram aviso no item (parecer nº 3, achado 3).
-      var conf = ORC.conferirResultados(o), naoRecalc = [];
-      o.itens.forEach(function (it) {
-        var rc = conf.recalculados[it.id];
-        var div = conf.divergentes.filter(function (d) { return d.id === it.id; });
-        if (rc) { it.inputs = rc.inputs; it.resultado = rc.resultado; it.avisos = rc.avisos.slice(); it.calculadoEm = new Date().toISOString(); }
-        else naoRecalc.push(it.descricao || it.origem);
-        div.forEach(function (d) { it.avisos = (it.avisos || []).concat(['Resultado do arquivo ' + (rc ? 'diferia do recálculo e foi substituído' : 'não pôde ser recalculado') + ' (' + d.motivo + ').']); });
-      });
-      if (naoRecalc.length) { orcListaStatus('Arquivo recusado: item(ns) não recalculável(is) com a configuração congelada — ' + naoRecalc.join(', '), 'err'); return; }
-      // candidato inteiro (já recalculado) precisa validar E consolidar em memória antes de entrar na lista/disco
-      var errosCand = ORC.validarOrcamento(o);
-      if (errosCand.length) { orcListaStatus('Arquivo recusado após o recálculo: ' + errosCand.slice(0, 3).join(' '), 'err'); return; }
-      try { ORC.consolidar(o); } catch (e) { orcListaStatus('Arquivo recusado: não consolida — ' + e.message, 'err'); return; }
-      if (orcamentos.some(function (x) { return x.id === o.id; }) || lerStorageOrc().some(function (x) { return x && x.id === o.id; })) o.id = ORC.gerarId('orc');
-      o.atualizadoEm = new Date().toISOString();
-      orcamentos.unshift(o);
-      var ok = gravarOrcamentos(o);
-      abrirOrc(o.id);
-      if (ok) orcStatus('Orçamento importado e salvo' + (conf.divergentes.length ? ' — ' + conf.divergentes.length + ' item(ns) com resultado diferente do recálculo (substituído; veja os avisos).' : '.'), conf.divergentes.length ? 'err' : 'ok');
-      else orcStatus($('orcStatus').textContent + ' Orçamento importado só nesta tela.', 'err');
+      var bruto;
+      try { bruto = JSON.parse(fr.result); } catch (e) { orcListaStatus('Arquivo inválido: não é um JSON.', 'err'); return; }
+      var lista = Array.isArray(bruto) ? bruto : (bruto && bruto.tipo === 'maisglass-backup' && Array.isArray(bruto.orcamentos) ? bruto.orcamentos : null);
+      if (!lista) { importarUmOrc(bruto, true); return; }
+      var r = { ok: 0, recusados: [] };
+      lista.forEach(function (o, i) { var x = importarUmOrc(o, false); if (x.ok) r.ok++; else r.recusados.push((o && o.cliente && o.cliente.nome || 'orçamento ' + (i + 1)) + ': ' + x.motivo); });
+      mostrarListaOrc();
+      orcListaStatus('Cópia de segurança importada: ' + r.ok + ' orçamento(s)' + (r.recusados.length ? '; recusado(s): ' + r.recusados.slice(0, 3).join(' · ') + (r.recusados.length > 3 ? ' (+' + (r.recusados.length - 3) + ')' : '') : '') + '.' + (bruto.config ? ' O arquivo também traz a configuração — um administrador pode importá-la na aba Configurações.' : ''), r.recusados.length ? 'err' : 'ok');
     };
     fr.readAsText(file);
+  }
+  function importarUmOrc(dadosArquivo, abrir) {
+    function recusa(msg) { if (abrir) orcListaStatus(msg, 'err'); return { ok: false, motivo: msg }; }
+    var o;
+    try {
+      o = ORC.migrarOrcamento(dadosArquivo);
+      var erros = ORC.validarOrcamento(o);
+      if (erros.length) throw new Error(erros.slice(0, 4).join(' '));
+    } catch (e) { return recusa('Arquivo inválido: ' + e.message); }
+    // Nada que veio do arquivo entra na conta: cada item é recalculado com a configuração congelada do próprio
+    // arquivo e o resultado recalculado SUBSTITUI o importado; divergências viram aviso no item (parecer nº 3, achado 3).
+    var conf = ORC.conferirResultados(o), naoRecalc = [];
+    o.itens.forEach(function (it) {
+      var rc = conf.recalculados[it.id];
+      var div = conf.divergentes.filter(function (d) { return d.id === it.id; });
+      if (rc) { it.inputs = rc.inputs; it.resultado = rc.resultado; it.avisos = rc.avisos.slice(); it.calculadoEm = new Date().toISOString(); }
+      else naoRecalc.push(it.descricao || it.origem);
+      div.forEach(function (d) { it.avisos = (it.avisos || []).concat(['Resultado do arquivo ' + (rc ? 'diferia do recálculo e foi substituído' : 'não pôde ser recalculado') + ' (' + d.motivo + ').']); });
+    });
+    if (naoRecalc.length) return recusa('Arquivo recusado: item(ns) não recalculável(is) com a configuração congelada — ' + naoRecalc.join(', '));
+    // candidato inteiro (já recalculado) precisa validar E consolidar em memória antes de entrar na lista/disco
+    var errosCand = ORC.validarOrcamento(o);
+    if (errosCand.length) return recusa('Arquivo recusado após o recálculo: ' + errosCand.slice(0, 3).join(' '));
+    try { ORC.consolidar(o); } catch (e) { return recusa('Arquivo recusado: não consolida — ' + e.message); }
+    if (orcamentos.some(function (x) { return x.id === o.id; }) || lerStorageOrc().some(function (x) { return x && x.id === o.id; })) o.id = ORC.gerarId('orc');
+    o.atualizadoEm = new Date().toISOString();
+    orcamentos.unshift(o);
+    var ok = gravarOrcamentos(o);
+    if (!abrir) return ok ? { ok: true } : { ok: false, motivo: 'não foi possível gravar' };
+    abrirOrc(o.id);
+    if (ok) orcStatus('Orçamento importado e salvo' + (conf.divergentes.length ? ' — ' + conf.divergentes.length + ' item(ns) com resultado diferente do recálculo (substituído; veja os avisos).' : '.'), conf.divergentes.length ? 'err' : 'ok');
+    else orcStatus($('orcStatus').textContent + ' Orçamento importado só nesta tela.', 'err');
+    return { ok: ok };
   }
   function imprimirOrc() {
     if (!orc || !orc.itens.length) { orcStatus('Adicione itens antes de imprimir a proposta.', 'err'); return; }
@@ -1775,6 +1896,7 @@
     $('orcImportar').addEventListener('click', function () { $('orcArquivo').click(); });
     $('orcArquivo').addEventListener('change', function () { if (this.files[0]) importarOrc(this.files[0]); this.value = ''; });
     $('orcAddCusto').addEventListener('click', adicionarCusto);
+    if ($('orcMigrar')) $('orcMigrar').addEventListener('click', migrarLocais);
     ['o-uf', 'o-destinatario', 'o-pagamento', 'o-bandeira', 'o-parcelas'].forEach(function (id) { $(id).addEventListener('change', function () { if (orc) onCabecalhoFiscal(); }); });
     $('o-status').addEventListener('change', function () { if (orc) onStatusOrc(); });
     ['o-nome', 'o-contato', 'o-validade', 'o-prazo', 'o-dataPrevista', 'o-inclusoFrete', 'o-inclusoInstalacao', 'o-inclusoTexto', 'o-observacoes'].forEach(function (id) {
@@ -1783,7 +1905,7 @@
     });
     [['in-', 'importacao'], ['r-', 'revenda'], ['n-', 'nacional']].forEach(function (par) { var b = $(par[0] + 'addOrc'); if (b) b.addEventListener('click', function () { adicionarItem(par[1]); }); });
     window.addEventListener('pagehide', concluirSalvarPendente);
-    window.addEventListener('beforeunload', function (ev) { concluirSalvarPendente(); if (temNaoSalvos()) { ev.preventDefault(); ev.returnValue = ''; } });
+    window.addEventListener('beforeunload', function (ev) { concluirSalvarPendente(); if (temNaoSalvos() || NUVEM.pendentes() > 0) { ev.preventDefault(); ev.returnValue = ''; } });
     window.addEventListener('storage', function (ev) {
       if (ev.key !== ORC_KEY) return;
       var disco = lerStorageOrc();
@@ -1855,15 +1977,124 @@
     document.querySelector('[data-cfg="dentro"]').addEventListener('input', function () {
       draft.dentro = Math.min(1, Math.max(0, (parseFloat(this.value) || 0) / 100)); atualizarFora();
     });
-    $('gerarHash').addEventListener('click', function () {
-      sha256($('novaSenha').value).then(function (h) { $('hashSaida').textContent = 'SENHA_HASH = \'' + h + '\''; })
-        .catch(function (e) { $('hashSaida').textContent = 'Erro ao gerar hash: ' + e.message; });
+    $('senhaBtn').addEventListener('click', trocarMinhaSenha);
+    $('uCriar').addEventListener('click', criarUsuario);
+    $('uCopiar').addEventListener('click', function () { var t = $('uSenha').textContent; if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { uStatus('Senha copiada.', 'ok'); }); });
+  }
+
+  /* =====================================================================
+   * Nuvem: liga a sincronização (nuvem.js) à interface — callbacks e aba Usuários
+   * ===================================================================== */
+  function hdrSync(texto, cls) { var e = $('hdrSync'); if (!e) return; e.textContent = texto; e.className = 'sync ' + (cls || ''); e.title = texto; }
+  function aplicarConfigRecebida(cfg, meta) {
+    var c;
+    try { c = normalizarConfig(cfg); } catch (e) { console.warn('Configuração recebida inválida', e); return; }
+    config = c;
+    salvarConfig(config);
+    draft = clone(config);
+    if (abaAtual === 'config') renderConfig();
+    preencherListas(); recalcular(); recalcularOperacoes(); atualizarCabecalho();
+    status('Configuração atualizada' + (meta && meta.atualizadoPor ? ' por ' + meta.atualizadoPor : '') + (meta && meta.atualizadoEm ? ' em ' + dataHora(meta.atualizadoEm) : '') + ' (servidor).', 'ok');
+  }
+  function iniciarNuvem() {
+    NUVEM.iniciar({
+      orcAberto: function () { return orc ? orc.id : null; },
+      confirmar: function (msg) { return confirm(msg); },
+      aoStatus: hdrSync,
+      aoReceberOrcamentos: function (info) {
+        sincronizarListaOrc(lerStorageOrc());
+        if (abaAtual === 'orcamentos') { if (!orc) renderListaOrc(); else { renderAutoriaOrc(); renderConflitoOrc(); } }
+        atualizarBotoesAdd();
+      },
+      aoReceberConfig: aplicarConfigRecebida,
+      aoAlteradoRemoto: function (id, quem, quando) { if (orc && orc.id === id) orcStatus('Este orçamento foi alterado por ' + (quem || 'outra pessoa') + ' às ' + dataHora(quando) + ' em outra máquina. A próxima gravação vai perguntar qual versão vale.', 'err'); },
+      aoExcluidoRemoto: function (id, quem, quando) { if (orc && orc.id === id) orcStatus('Este orçamento foi excluído por ' + (quem || 'outra pessoa') + ' às ' + dataHora(quando) + ' em outra máquina. Ele continua nesta tela; ao salvar, o app pergunta se recria.', 'err'); },
+      aoConflito: function (id, c) { if (orc && orc.id === id) renderConflitoOrc(); else if (abaAtual === 'orcamentos') renderListaOrc(); },
+      aoSincronizado: function (id) { if (orc && orc.id === id) renderAutoriaOrc(); },
+      aoMigracaoDisponivel: function (n) { if (abaAtual === 'orcamentos' && !orc) renderMigracao(); },
+      aoSessaoPerdida: function () { concluirSalvarPendente(); mostrarLogin(); loginErro('Sua sessão expirou ou foi encerrada. Entre de novo — o que estava pendente continua guardado neste computador.'); }
     });
+  }
+
+  /* Endereço sem servidor (ex.: o antigo GitHub Pages): os orçamentos e a configuração deste navegador ficam presos
+   * nesta origem. Oferece baixar tudo num arquivo único, que o app novo importa em Orçamentos → Importar (JSON). */
+  function oferecerBackupLocal() {
+    var lista = lerStorageOrc(), cfg = null;
+    try { cfg = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch (e) { cfg = null; }
+    if (!lista.length && !cfg) return;
+    var box = $('loginBackup'); if (!box) return;
+    box.classList.remove('hidden');
+    $('loginBackupTexto').textContent = 'Este endereço não tem o servidor da empresa. Há ' + lista.length + ' orçamento(s)' + (cfg ? ' e uma configuração' : '') + ' guardados neste navegador: baixe o arquivo e importe no endereço novo (Orçamentos → Importar JSON).';
+    $('loginBackupBtn').onclick = function () {
+      var dados = { tipo: 'maisglass-backup', geradoEm: new Date().toISOString(), origem: location.href, orcamentos: lista, config: cfg };
+      var a = el('a', { href: URL.createObjectURL(new Blob([JSON.stringify(dados, null, 2)], { type: 'application/json' })), download: 'maisglass-backup-' + new Date().toISOString().slice(0, 10) + '.json' });
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    };
+  }
+
+  /* ---------- aba Usuários (administradores) ---------- */
+  function uStatus(msg, cls) { var e = $('uStatus'); e.textContent = msg; e.className = 'status ' + (cls || ''); }
+  function mostrarSenhaInicial(quem, senha) {
+    $('uSenhaQuem').textContent = quem; $('uSenha').textContent = senha; $('uSenhaBox').classList.remove('hidden');
+  }
+  function renderUsuarios() {
+    if (!ehAdmin()) return;
+    var wrap = $('u-tabela'); wrap.innerHTML = 'Carregando…';
+    NUVEM.api('GET', '/api/usuarios').then(function (r) {
+      if (r.status !== 200) { wrap.textContent = 'Não foi possível carregar: ' + ((r.corpo && r.corpo.erro) || r.status); return; }
+      wrap.innerHTML = '';
+      var linhas = r.corpo.usuarios.map(function (u) {
+        var eu = usuarioAtual && u.id === usuarioAtual.id;
+        function acao(txt, fn, cls) { var b = el('button', { class: 'btn small' + (cls ? ' ' + cls : ''), text: txt, onclick: fn }); return b; }
+        function patch(campos, msgOk) {
+          NUVEM.api('PATCH', '/api/usuarios/' + u.id, campos).then(function (x) {
+            if (x.status !== 200) { uStatus((x.corpo && x.corpo.erro) || ('Erro ' + x.status), 'err'); return; }
+            if (x.corpo.senhaInicial) mostrarSenhaInicial(u.nome || u.email, x.corpo.senhaInicial);
+            uStatus(msgOk, 'ok'); renderUsuarios();
+          }).catch(function (e) { uStatus(e.message, 'err'); });
+        }
+        var acoes = el('td', { class: 'acoes' }, [
+          acao(u.papel === 'admin' ? 'Tornar usuário' : 'Tornar admin', function () { patch({ papel: u.papel === 'admin' ? 'usuario' : 'admin' }, 'Papel alterado.'); }),
+          acao('Redefinir senha', function () { if (confirm('Gerar uma nova senha inicial para ' + (u.nome || u.email) + '? A senha atual deixa de valer e as sessões dela são encerradas.')) patch({ redefinirSenha: true }, 'Senha redefinida.'); }),
+          acao(u.ativo ? 'Desativar' : 'Reativar', function () { if (u.ativo && !confirm('Desativar ' + (u.nome || u.email) + '? A pessoa deixa de conseguir entrar.')) return; patch({ ativo: !u.ativo }, u.ativo ? 'Usuário desativado.' : 'Usuário reativado.'); }, u.ativo ? 'danger' : '')
+        ]);
+        if (eu) acoes.querySelectorAll('button').forEach(function (b) { if (b.textContent !== 'Redefinir senha') b.disabled = true; });
+        return el('tr', {}, [
+          el('td', {}, [el('strong', { text: u.nome || '—' }), eu ? el('small', { text: ' (você)', style: 'color:var(--muted)' }) : document.createTextNode('')]),
+          el('td', { text: u.email }),
+          el('td', {}, [el('span', { class: 'tag ' + (u.papel === 'admin' ? 'st-aprovado' : 'st-rascunho'), text: u.papel === 'admin' ? 'Administrador' : 'Usuário' })]),
+          el('td', {}, [el('span', { class: 'tag ' + (u.ativo ? 'st-enviado' : 'st-perdido'), text: u.ativo ? 'Ativo' : 'Desativado' }), u.senhaPendente ? el('small', { text: ' senha inicial pendente', style: 'color:var(--muted)' }) : document.createTextNode('')]),
+          el('td', { text: u.ultimoAcesso ? dataHora(u.ultimoAcesso) : 'nunca' }),
+          acoes
+        ]);
+      });
+      wrap.appendChild(el('table', { class: 'lista' }, [
+        el('thead', {}, [el('tr', {}, ['Nome', 'E-mail', 'Papel', 'Situação', 'Último acesso', ''].map(function (h) { return el('th', { text: h }); }))]),
+        el('tbody', {}, linhas)
+      ]));
+    }).catch(function (e) { wrap.textContent = 'Sem conexão: ' + e.message; });
+  }
+  function criarUsuario() {
+    var nome = $('u-nome').value.trim(), email = $('u-email').value.trim(), papel = $('u-papel').value;
+    if (!email) { uStatus('Informe o e-mail.', 'err'); return; }
+    uStatus('Criando…', '');
+    NUVEM.api('POST', '/api/usuarios', { nome: nome, email: email, papel: papel }).then(function (r) {
+      if (r.status !== 200) { uStatus((r.corpo && r.corpo.erro) || ('Erro ' + r.status), 'err'); return; }
+      mostrarSenhaInicial(r.corpo.usuario.nome || r.corpo.usuario.email, r.corpo.senhaInicial);
+      $('u-nome').value = ''; $('u-email').value = ''; uStatus('Usuário criado.', 'ok'); renderUsuarios();
+    }).catch(function (e) { uStatus(e.message, 'err'); });
   }
 
   document.addEventListener('DOMContentLoaded', function () {
     $('loginBtn').addEventListener('click', entrar);
     $('loginSenha').addEventListener('keydown', function (e) { if (e.key === 'Enter') entrar(); });
-    if (autenticado()) mostrarApp(); else $('loginSenha').focus();
+    $('loginEmail').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('loginSenha').focus(); });
+    $('trocaSenhaBtn').addEventListener('click', definirSenha);
+    $('novaSenha2').addEventListener('keydown', function (e) { if (e.key === 'Enter') definirSenha(); });
+    loginInfo('Conectando…');
+    NUVEM.sessao().then(function (r) {
+      if (r && r.precisaTrocarSenha) { mostrarLogin(); loginErro('Sua senha inicial ainda não foi trocada: entre de novo para definir a nova senha.'); return; }
+      if (r) mostrarApp(r.usuario); else mostrarLogin();
+    }).catch(function (e) { mostrarLogin(); loginErro(e.rede ? 'Sem conexão com o servidor. Verifique a internet e recarregue a página.' : 'Servidor indisponível: ' + e.message); oferecerBackupLocal(); });
   });
 })();

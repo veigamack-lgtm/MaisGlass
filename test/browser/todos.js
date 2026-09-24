@@ -2,7 +2,7 @@
  * Uso: node test/browser/todos.js   (servidor estático em http://localhost:8765 ou GM_URL) */
 const { spawnSync } = require('child_process');
 const path = require('path');
-const SCRIPTS = ['orc.js', 'p3.js', 'p4.js', 'p5.js', 'p6.js', 'help.js', 'f1a.js', 'resid.js', 'mig4.js', 'pdf.js'];
+const SCRIPTS = ['orc.js', 'p3.js', 'p4.js', 'p5.js', 'p6.js', 'nuvem.js', 'help.js', 'f1a.js', 'resid.js', 'mig4.js', 'pdf.js'];
 const resultado = [];
 for (const s of SCRIPTS) {
   console.log('\n########## ' + s);

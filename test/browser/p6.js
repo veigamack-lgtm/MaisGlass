@@ -21,7 +21,12 @@ executar(async () => {
     // encerra o cenário anterior: tira o foco do campo (o change agenda autosave) e deixa o autosave concluir ANTES de
     // limpar o storage — senão o pagehide do reload conclui esse autosave e recria o orçamento do cenário anterior
     await p.evaluate(() => { if (document.activeElement) document.activeElement.blur(); }); await p.waitForTimeout(800);
-    await p.evaluate(() => { localStorage.removeItem('glassmais.orcamentos.v1'); sessionStorage.removeItem('glassmais.orcAtual'); });
+    // zera o servidor local (API em memória) e o estado local das duas abas: cada cenário começa limpo.
+    // Antes, para a sincronização nas duas abas e espera envios em andamento terminarem.
+    for (const pg of [p, p2]) await pg.evaluate(() => { if (window.GM_NUVEM) window.GM_NUVEM.parar(); });
+    await p.waitForTimeout(400);
+    const est = B.srv.ctx.repo._estado; est.orcamentos.clear(); est.hist.length = 0;
+    await p.evaluate(() => { localStorage.removeItem('glassmais.orcamentos.v1'); localStorage.removeItem('glassmais.sync.v1'); sessionStorage.removeItem('glassmais.orcAtual'); });
     await p.reload(); await B.login(p); await aba(p, 'orcamentos');
     igual('cenário começa com o storage vazio', await nomes(p), []);
     for (const n of ['A original', 'B original']) { await p.click('#orcNovo'); await p.waitForTimeout(100); await p.fill('#o-nome', n); await p.waitForTimeout(700); await p.click('#orcVoltar'); await p.waitForTimeout(100); }
