@@ -14,7 +14,9 @@ depois em Vercel → Domains).
 
 | Arquivo | Função |
 |---|---|
-| `index.html` | Interface (login, Início, três calculadoras, Orçamentos, Configurações, Usuários). CSS embutido, inclusive o de impressão da proposta. |
+| `index.html` | Interface (login, Início, três calculadoras, Orçamentos, Configurações, Usuários). CSS embutido com a identidade visual MaisGlass, inclusive o de impressão da proposta. |
+| `marca/` | Logos da MaisGlass (horizontal branca no topo, vertical metálica na entrada, horizontal metálica na proposta, grafite no rodapé), ícones (favicon, atalho do celular) e as fontes Inter e Montserrat (`marca/fontes/`, licença OFL) servidas pelo próprio site. |
+| `termos.js` | Textos da proposta comercial (referência, introdução, normas, OBJETO e cláusulas 1–13, encerramento), complementos automáticos a partir do orçamento e validação dos campos da proposta. Usado pelo app e pelo servidor. Não participa de nenhum cálculo. |
 | `calc.js` | Motor de cálculo puro (sem DOM). Cada fórmula cita a célula da planilha de origem. |
 | `defaults.js` | Valores padrão: produtos, classes fiscais + NCM, despesas nacionais, entreposto, cartão, DIFAL. É o "Restaurar padrão". |
 | `orcamento.js` | Motor do módulo Orçamentos (puro): consolida itens das três calculadoras, custos internos, DRE real × presumido. Usado também pelo servidor para validar. |
@@ -24,8 +26,9 @@ depois em Vercel → Domains).
 | `vercel.json` | Região das funções em São Paulo (`gru1`, ao lado do banco), instalação só das dependências de produção, cabeçalhos de segurança. |
 | `package.json` | Dependência de produção: `@neondatabase/serverless`. Dependências de teste: jsdom, pg, playwright. |
 | `test/test.js` | Motor (planilha, memorial da contadora, orçamentos): `node test/test.js` — 565 verificações, sem dependências. |
-| `test/api.js` | API contra o servidor local em memória: `node test/api.js` — 69 verificações. Com `PG_TESTE_URL=postgres://…` roda o mesmo contra um Postgres de verdade (usa `pg`; **nunca** aponte para o banco de produção — ele apaga as tabelas). |
-| `test/ui.js` | Interface em jsdom com o servidor local: duas "máquinas", conflitos, exclusão, fila sem rede, migração, usuários, cópia de segurança — 197 verificações. |
+| `test/termos.js` | Textos da proposta: cláusulas, complementos automáticos (pagamento, frete, prazo, validade, perda, dólar, FCP), numeração, textos do administrador, validação — 52 verificações. |
+| `test/api.js` | API contra o servidor local em memória: `node test/api.js` — 73 verificações. Com `PG_TESTE_URL=postgres://…` roda o mesmo contra um Postgres de verdade (usa `pg`; **nunca** aponte para o banco de produção — ele apaga as tabelas). |
+| `test/ui.js` | Interface em jsdom com o servidor local: duas "máquinas", conflitos, exclusão, fila sem rede, migração, usuários, cópia de segurança, emissão/proposta antiga, material cadastrado depois do orçamento — 223 verificações. |
 | `test/browser/` | Playwright (Chromium) assert-based, cada script sobe o próprio servidor local — `node test/browser/todos.js`; ver `test/browser/README.md`. |
 | `test/servidor-local.js` | Servidor local: arquivos + a mesma API com banco em memória. `node test/servidor-local.js` → http://localhost:8765 (admin@maisglass.local / admin12345). |
 
@@ -311,6 +314,18 @@ Compõe um orçamento para um cliente com itens das três calculadoras. Regras
   usado e, por item, entradas + resultado. `consolidar(orcamento)` só usa o
   que está no orçamento — mudar Configurações não altera orçamentos salvos;
   "Recalcular com a configuração atual" mostra a diferença antes de aplicar.
+  **Material cadastrado depois do orçamento** (set/2026): ao adicionar ou
+  substituir um item com um material que não existe na configuração congelada
+  do orçamento, o cadastro dele (custo, capacidade e a classe fiscal, se
+  faltar) é copiado da configuração atual para a congelada — antes o app
+  recusava com "Produto não encontrado". Dólar, alíquotas, cartão, premissas,
+  demais materiais e itens existentes continuam congelados. Material renomeado
+  ou removido em Configurações não trava o "Recalcular": o item mantém o
+  cadastro congelado (a confirmação lista quais) e "Carregar" avisa para
+  escolher o material atual. O aviso "configuração diferente da congelada" só
+  considera o que muda os números do orçamento (materiais usados pelos itens,
+  sem empresa/termos) e ignora ruído de ponto flutuante; percentuais digitados
+  em Configurações são gravados sem esse ruído (0,65% → 0,0065).
 - **Consolidação** (`GM_ORC.consolidar`): `adaptarDre` põe a DRE de cada item
   numa convenção única (deduções = débitos cheios; CMV líquido dos créditos —
   a importação direta é reapresentada somando os créditos de PIS/COFINS da
@@ -333,12 +348,50 @@ Compõe um orçamento para um cliente com itens das três calculadoras. Regras
   como ISO 8601 estrito (`AAAA-MM-DD` ou `AAAA-MM-DDThh:mm[:ss[.fração]]` +
   `Z`/`±hh:mm`, com calendário e relógio conferidos — 30/02 não passa);
   `emitidoEm` inválido recusa o arquivo, `enviadoEm` inválido não é evidência.
-- **Proposta impressa**: só `#proposta` sai na impressão (`@media print`):
-  dados da empresa (Configurações até a emissão; depois os congelados),
-  cliente, itens (m², R$/m² aproximado, total), total, pagamento, entrega,
-  inclusões, observações. Vale o total de cada item (nota quando unitário × m²
-  difere); FCP não cadastrado em item de importação direta gera ressalva
-  "adicional estadual será confirmado na emissão da nota fiscal".
+- **Proposta impressa** (set/2026, formato das propostas comerciais do
+  mercado de vidros): só `#proposta` sai na impressão (`@media print`, A4).
+  Ordem: logo MaisGlass + bloco "Proposta Comercial Nº / Revisão / Consultor
+  técnico comercial / Telefone / E-mail"; cliente ("À:", A/C, e-mail,
+  telefone, CNPJ/CPF, endereço, endereço da entrega, IE, UF de entrega, obra,
+  projeto — campos do cabeçalho do orçamento); "REF." e introdução; quadro
+  ITEM · QTD · UM · DESCRIÇÃO · VLR UNITÁRIO R$/m² · VLR TOTAL R$ e TOTAL (vale
+  o total de cada item; nota "*" quando unitário × m² difere); linha de normas
+  ABNT; observações do orçamento; **termos e condições** (OBJETO e cláusulas
+  1–13: impostos, preços, reajustes, pagamento, frete, bordas, matéria-prima,
+  entrega, arredondamento, garantia de 5 anos, LGPD, validade, autorização);
+  "Permanecemos à disposição"; assinaturas (razão social + CNPJ/IE e consultor
+  | "De acordo" do contratante com nome, CPF/RG e data); rodapé com CNPJ,
+  endereço, telefone, e-mail e site **em todas as páginas** (rodapé fixo +
+  espaço reservado por `tfoot`). O nome sugerido do PDF é "Proposta MaisGlass
+  <nº> rev <n> - <cliente>".
+- **Termos e condições** (`termos.js`): texto padrão de cada cláusula
+  editável pelo administrador em Configurações → "Termos e condições da
+  proposta" (`config.proposta.termos[id]`, só o que difere do padrão; "Restaurar
+  padrão" por cláusula). Complementos **automáticos** vêm do orçamento:
+  pagamento (à vista / parcelado com bandeira), frete (incluso com o endereço
+  de entrega ou não incluso), prazo de entrega, validade, UF e destinatário do
+  cálculo (1.x), ressalva do FCP não cadastrado ("Ressalva ao item 1.1 … será
+  confirmado na emissão da nota fiscal"), perda geométrica (2.x, tirada do
+  campo "Perda (%)" de cada item — sem perda, a proposta diz que os preços não
+  consideram perda) e, havendo itens de importação direta, o item 3.x com a
+  cotação do dólar usada e o repasse da variação cambial após os 15 dias. A
+  numeração automática continua a do texto (se o administrador acrescentar
+  1.5, a parte automática vira 1.6). Decisões do Gabriel sobre a proposta de
+  referência: entrega igual (só o nome trocado), garantia de 5 anos, reajuste
+  de 15 dias + dólar nos importados, bordas e arredondamento mantidos.
+- **Congelamento na emissão**: além da data e da empresa, a emissão grava no
+  orçamento o **número** da proposta (`numero`, o mesmo em todas as revisões —
+  vem da 1ª), o **consultor** (quem emitiu: nome e e-mail) e os **textos
+  completos** (`textosProposta`); mudar os termos depois não altera propostas
+  enviadas. Rascunho acompanha Configurações; "Nova revisão" leva o número e
+  volta a acompanhar. Proposta emitida antes desta versão (sem textos
+  congelados) é reimpressa **como foi enviada** — número e formato antigos, sem
+  cláusulas nem assinaturas — com um aviso na tela; para mandar com os termos,
+  "Nova revisão". Os campos novos (cliente completo, `numero`, `consultor`,
+  `textosProposta`) são validados pelo servidor e na importação
+  (`GM_TERMOS.validarCamposProposta`); `orcamento.js` não mudou. Mudar só
+  empresa/termos em Configurações não acende o aviso "configuração diferente da
+  congelada" (não afeta preço).
 - **Persistência local** (1º estágio; o envio ao servidor é o 2º estágio,
   `nuvem.js`, ver "Onde ficam os dados"): `localStorage`
   `glassmais.orcamentos.v1` (cache da lista), autosave
@@ -369,6 +422,20 @@ Compõe um orçamento para um cliente com itens das três calculadoras. Regras
   e blocos "Parecer 3/4/5"; ciclos de interface (carregar/substituir, gravação
   adiada × exclusão/recusa/recriação, importação com data impossível) em
   `test/ui.js` (jsdom) e `test/browser/p5.js`/`p6.js` (Chromium).
+
+## Identidade visual (manual de marca, set/2026)
+
+Cores oficiais em variáveis CSS (`:root` de `index.html`): grafite `#11181D`
+(topo, botões principais, texto), branco `#FAFAFA`, marfim `#F7F5F0` (fundo) e
+metal premium escuro `#69777D · #344249 · #172329 · #536169 · #101A1F`
+(destaques, resultado principal com degradê metálico, números do Início).
+Tipografia Inter (textos e números tabulares) e Montserrat (títulos, rótulos,
+navegação), servidas de `marca/fontes/`. Logos: horizontal branca no topo
+escuro, vertical metálica na tela de entrada (com o lema "Abrir
+possibilidades. Entregar certeza."), horizontal metálica na proposta e
+grafite no rodapé; favicon e ícone de celular com o símbolo branco sobre
+grafite. Cores do gráfico de composição na paleta da marca (lucro sempre em
+verde). No celular a navegação por abas rola na horizontal.
 
 ## Validação
 

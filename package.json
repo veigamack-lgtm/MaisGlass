@@ -1,11 +1,12 @@
 {
   "name": "maisglass-calculadora",
   "private": true,
-  "version": "2.0.0",
+  "version": "2.1.1",
   "description": "Calculadora de preço MaisGlass (importação direta, revenda de importado, indústria nacional) + Orçamentos, com login e dados compartilhados (Vercel + Neon)",
   "engines": { "node": ">=18" },
   "scripts": {
-    "test": "node test/test.js && node test/api.js && node test/ui.js",
+    "test": "node test/test.js && node test/termos.js && node test/api.js && node test/ui.js",
+    "test:termos": "node test/termos.js",
     "test:motor": "node test/test.js",
     "test:api": "node test/api.js",
     "test:ui": "node test/ui.js",
