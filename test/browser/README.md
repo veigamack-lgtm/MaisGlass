@@ -28,7 +28,9 @@ node test/browser/help.js          # botões "?" das três abas (16)
 node test/browser/f1a.js           # FCP na importação direta / presumido v4 / LC 224 (10)
 node test/browser/resid.js         # resíduos da rodada 2 (10)
 node test/browser/mig4.js          # migração de configuração v3 → v4 (3)
-node test/browser/pdf.js           # proposta impressa → proposta.pdf na pasta temporária (10)
+node test/browser/pdf.js           # proposta impressa (itens + termos, 2 a 4 páginas A4) → proposta.pdf na pasta temporária (10)
+node test/browser/material.js      # material cadastrado depois do orçamento: adicionar/substituir funcionam; material renomeado não trava o Recalcular (8)
+node test/browser/proposta.js      # proposta no formato de mercado: cliente completo, cláusulas 1–13, rodapé fixo, termos editáveis e congelados na emissão, número estável entre revisões (44)
 ```
 
 Alguns scripts simulam falha de armazenamento sobrescrevendo

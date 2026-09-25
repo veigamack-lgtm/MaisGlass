@@ -7,6 +7,7 @@
 const DEF = require('../../defaults.js').GM_DEFAULTS;
 const CALC = require('../../calc.js').GM_CALC;
 const ORC = require('../../orcamento.js').GM_ORC;
+const TERMOS = require('../../termos.js').GM_TERMOS;
 
 const LIMITE_BYTES = 2 * 1024 * 1024;
 
@@ -19,7 +20,7 @@ function orcamento(dados, idEsperado) {
   if (tamanho > LIMITE_BYTES) throw new ErroValidacao('Orçamento grande demais (' + Math.round(tamanho / 1024) + ' KB; limite 2 MB).');
   let o;
   try { o = ORC.migrarOrcamento(dados); } catch (e) { throw new ErroValidacao(e.message); }
-  const erros = ORC.validarOrcamento(o);
+  const erros = ORC.validarOrcamento(o).concat(TERMOS.validarCamposProposta(o));   // + campos só da proposta impressa (cliente completo, número, consultor, textos congelados)
   if (erros.length) throw new ErroValidacao(erros.slice(0, 4).join(' '), erros);
   if (idEsperado !== undefined && o.id !== idEsperado) throw new ErroValidacao('O id do orçamento (' + o.id + ') não confere com a rota (' + idEsperado + ').');
   try { ORC.consolidar(o); } catch (e) { throw new ErroValidacao('Orçamento não consolida: ' + e.message); }
@@ -32,7 +33,7 @@ function config(dados) {
   const tamanho = Buffer.byteLength(JSON.stringify(dados));
   if (tamanho > LIMITE_BYTES) throw new ErroValidacao('Configuração grande demais.');
   const c = CALC.migrarConfig(dados, DEF.config);
-  const erros = CALC.validarConfig(c);
+  const erros = CALC.validarConfig(c).concat(TERMOS.validarTermos(c.proposta && c.proposta.termos));
   if (erros.length) throw new ErroValidacao('Configuração inválida: ' + erros.slice(0, 4).join(' '), erros);
   return c;
 }
@@ -50,4 +51,4 @@ function texto(v, nome, max) {
   return v.trim();
 }
 
-module.exports = { orcamento, config, email, texto, ErroValidacao, ORC, CALC, DEF, LIMITE_BYTES };
+module.exports = { orcamento, config, email, texto, ErroValidacao, ORC, CALC, DEF, TERMOS, LIMITE_BYTES };

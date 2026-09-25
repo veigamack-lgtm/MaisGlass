@@ -103,6 +103,13 @@ function orcamentoValido(id, nome) {
   r = await B.put('/api/config', { dados: D.config, versaoBase: 1 });
   igual('outra máquina com versaoBase velha → 409 com a atual', [r.status, r.corpo.atual.versao, r.corpo.atual.dados.dolar], [409, 2, 5.5]);
   igual('vendedor lê a config', (await X.get('/api/config')).corpo.versao, 2);
+  const cfgT = JSON.parse(JSON.stringify(cfg2)); cfgT.proposta.termos = { inventada: 'x' };
+  igual('termos da proposta com cláusula desconhecida → 400', (await A.put('/api/config', { dados: cfgT, versaoBase: 2 })).status, 400);
+  cfgT.proposta.termos = { garantia: 5 };
+  igual('termos da proposta não-texto → 400', (await A.put('/api/config', { dados: cfgT, versaoBase: 2 })).status, 400);
+  cfgT.proposta.termos = { garantia: 'Garantia de 2 anos.' }; cfgT.empresa.site = 'www.maisglass.com.br';
+  const VAL = require('../api/_lib/validar.js');
+  igual('termos válidos e empresa.site passam pela validação do servidor sem perda', [VAL.config(cfgT).proposta.termos, VAL.config(cfgT).empresa.site], [{ garantia: 'Garantia de 2 anos.' }, 'www.maisglass.com.br']);
 
   console.log('--- orçamentos: PUT/GET/versões');
   const o1 = orcamentoValido('orc_a', 'Cliente A');
@@ -110,6 +117,8 @@ function orcamentoValido(id, nome) {
   igual('PUT com id divergente → 400', (await A.put('/api/orcamentos/outro', { dados: o1, versaoBase: null })).status, 400);
   const ruim = JSON.parse(JSON.stringify(o1)); ruim.cliente.uf = 'XX';
   igual('PUT inválido pelo motor → 400', (await A.put('/api/orcamentos/orc_a', { dados: ruim, versaoBase: null })).status, 400);
+  const ruimP = JSON.parse(JSON.stringify(o1)); ruimP.textosProposta = { clausulas: 'x' };
+  igual('PUT com campo da proposta inválido (textos congelados) → 400', (await A.put('/api/orcamentos/orc_a', { dados: ruimP, versaoBase: null })).status, 400);
   r = await A.put('/api/orcamentos/orc_a', { dados: o1, versaoBase: null });
   igual('criar → versão 1 com autor', [r.status, r.corpo.versao, r.corpo.atualizadoPor], [200, 1, 'Administrador']);
   r = await A.get('/api/orcamentos/orc_a');

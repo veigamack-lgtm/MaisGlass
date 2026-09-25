@@ -121,7 +121,7 @@ executar(async () => {
   await aba(p, 'calc'); await p.fill('#in-precoBase', '140.01'); await p.locator('#in-precoBase').dispatchEvent('input'); await p.waitForTimeout(100); await p.click('#in-addOrc'); await p.waitForTimeout(150);
   await aba(p, 'orcamentos');
   const prop = await t(p, 'proposta');
-  contem('unitário aprox.: cabeçalho', prop, 'R$/m² (aprox.)');
+  contem('unitário aprox.: cabeçalho', prop, 'VLR UNITÁRIO R$/m² *');
   contem('unitário aprox.: nota', prop, 'aproximado');
   await p.click('#orcVoltar'); await p.waitForTimeout(100); await p.click('#orcNovo'); await p.waitForTimeout(100);
   await p.fill('#o-nome', 'SP sem FCP'); await p.selectOption('#o-uf', 'SP'); await p.waitForTimeout(700);

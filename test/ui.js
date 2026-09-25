@@ -16,7 +16,7 @@ catch (e) { console.error('jsdom não encontrado: instale com "npm i jsdom" (ou 
 
 var RAIZ = path.join(__dirname, '..');
 var HTML = fs.readFileSync(path.join(RAIZ, 'index.html'), 'utf8');
-var SCRIPTS = ['defaults.js', 'calc.js', 'orcamento.js', 'nuvem.js', 'app.js'].map(function (f) { return fs.readFileSync(path.join(RAIZ, f), 'utf8'); });
+var SCRIPTS = ['defaults.js', 'calc.js', 'orcamento.js', 'termos.js', 'nuvem.js', 'app.js'].map(function (f) { return fs.readFileSync(path.join(RAIZ, f), 'utf8'); });
 var ORC_KEY = 'glassmais.orcamentos.v1';
 var servidorLocal = require('./servidor-local');
 var O = require(path.join(RAIZ, 'orcamento.js')).GM_ORC;
@@ -653,6 +653,9 @@ await (async function () {
   for (var i = 0; i < 100 && !V.w.GM_NUVEM.carregou(); i++) await esperar(20);
   igual('app aberto como vendedor', [V.$('app').classList.contains('hidden'), V.texto('hdrUsuario')], [false, 'Vendedor']);
   igual('aba Usuários escondida; configuração só leitura', [V.doc.querySelector('nav.tabs button[data-tab="usuarios"]').classList.contains('hidden'), V.$('cfgSomenteLeitura').classList.contains('hidden'), V.$('cfgSalvar').classList.contains('hidden'), V.doc.querySelector('[data-cfg="dolar"]').disabled], [true, false, true, true]);
+  V.aba('config');
+  igual('vendedor: termos da proposta e tabelas da configuração também só leitura (depois de abrir a aba)', [V.doc.querySelectorAll('#cfg-termos textarea').length, Array.prototype.every.call(V.doc.querySelectorAll('#cfg-termos textarea, #cfg-produtos input, #cfg-fcp input'), function (i) { return i.disabled; })], [18, true]);
+  V.aba('home');
   // admin muda o dólar → vendedor recebe
   A.aba('config');
   var dolar = A.doc.querySelector('[data-cfg="dolar"]'); dolar.value = '6.10'; dolar.dispatchEvent(new A.w.Event('input', { bubbles: true })); A.disparar(500); await A.sync();
@@ -705,6 +708,94 @@ await (async function () {
   A.click('cfgSalvar'); await A.sync();
   igual('dólar da configuração antiga no servidor', (await (async function () { var r = await A.w.fetch('/api/config', { headers: { 'X-Requested-With': 'MaisGlass' } }); return (await r.json()).dados.dolar; })()), 5.99);
   igual('sem erros de página', A.errosPagina, []);
+  await amb.fechar();
+})();
+
+console.log('\n--- Proposta: emissão congela número, consultor e termos; emitida antes dos termos sai como foi enviada');
+await (async function () {
+  var amb = await ambiente();
+  var a = await novaAba(amb);
+  a.novoOrc('Legado RJ', 'RJ'); a.aba('calc'); a.click('in-addOrc'); a.aba('orcamentos');
+  a.set('o-status', 'enviado', 'change'); a.disparar(500);
+  var o = a.orcAberto();
+  igual('emissão congela número (1ª revisão = id), consultor e textos', [o.numero, o.consultor.email, Array.isArray(o.textosProposta.clausulas), o.textosProposta.clausulas.length], [o.id.slice(-6).toUpperCase(), amb.ctx.env.ADMIN_EMAIL, true, 14]);
+  // orçamento emitido pela versão anterior (sem textos, consultor e número), rev. 2
+  var leg = JSON.parse(JSON.stringify(o)); delete leg.textosProposta; delete leg.consultor; delete leg.numero; leg.revisao = 2; leg.id = 'orc_legado00ab12';
+  var amb2 = await ambiente();
+  var b = await novaAba(amb2, { disco: [leg] }); b.aba('orcamentos'); b.abrir('Legado RJ');
+  var t = b.texto('proposta');
+  ok(t.indexOf('Proposta Comercial Nº: 00AB12-r2') >= 0, 'número no formato antigo (como foi enviado)');
+  ok(t.indexOf('1) IMPOSTOS') < 0 && t.indexOf('De acordo,') < 0, 'sem cláusulas nem assinaturas (não foram enviadas)');
+  ok(t.indexOf('Pagamento: à vista') >= 0 && t.indexOf('Preços com impostos inclusos') >= 0, 'condições e nota de impostos do formato antigo');
+  ok(t.indexOf('antes dos termos e condições') >= 0, 'aviso na tela (some na impressão)');
+  ok(b.linhaLista('Legado RJ').textContent.indexOf('00AB12-r2') >= 0, 'lista mostra o número antigo');
+  b.click('orcRevisao'); b.disparar(500);
+  t = b.texto('proposta');
+  ok(t.indexOf('1) IMPOSTOS') >= 0 && t.indexOf('antes dos termos') < 0, 'nova revisão sai com os termos e condições');
+  ok(t.indexOf('Proposta Comercial Nº: 00AB12') >= 0 && t.indexOf('Revisão: 03') >= 0, 'nova revisão mantém o número (sem o sufixo antigo) e numera a revisão');
+  // importação: campos da proposta com tipo errado são recusados (o servidor faz a mesma checagem)
+  var ruim = JSON.parse(JSON.stringify(o)); ruim.id = 'orc_ruim'; ruim.cliente.enderecoEntrega = 123;
+  var f = new b.w.File([JSON.stringify(ruim)], 'ruim.json', { type: 'application/json' });
+  b.click('orcVoltar');
+  var inp = b.$('orcArquivo'); Object.defineProperty(inp, 'files', { value: [f], configurable: true }); inp.dispatchEvent(new b.w.Event('change'));
+  await esperar(80);
+  ok(/cliente\.enderecoEntrega deve ser texto/.test(b.texto('orcListaStatus')), 'importação recusa campo da proposta com tipo errado: ' + b.texto('orcListaStatus'));
+  igual('sem erros de página', a.errosPagina.concat(b.errosPagina), []);
+  await amb.fechar(); await amb2.fechar();
+})();
+
+console.log('\n--- Material cadastrado depois do orçamento (Configurações → Produtos)');
+await (async function () {
+  var amb = await ambiente();
+  var a = await novaAba(amb);
+  a.novoOrc('Material novo', 'RJ'); a.aba('calc'); a.click('in-addOrc'); a.aba('orcamentos');
+  var o0 = a.orcAberto(), prod0 = o0.itens[0].inputs.produto, res0 = JSON.stringify(o0.itens[0].resultado), dolar0 = o0.configSnapshot.dolar;
+  // admin cadastra um material novo e muda o dólar (o orçamento continua com o dólar congelado)
+  a.aba('config'); a.click('cfgAddProduto');
+  var linhas = a.doc.querySelectorAll('#cfg-produtos tbody tr'), ult = linhas[linhas.length - 1], ins = ult.querySelectorAll('input');
+  function muda(inp, v) { inp.value = v; inp.dispatchEvent(new a.w.Event('change', { bubbles: true })); }
+  muda(ins[0], 'Vidro Teste 10mm'); muda(ins[1], '9.5');
+  var dol = a.doc.querySelector('[data-cfg="dolar"]'); dol.value = '5.9'; dol.dispatchEvent(new a.w.Event('input', { bubbles: true }));
+  a.disparar(500);
+  var cfgSalva = JSON.parse(a.w.localStorage.getItem('glassmais.config.v1'));
+  igual('material novo e dólar novo na configuração', [cfgSalva.produtos.slice(-1)[0].nome, cfgSalva.dolar], ['Vidro Teste 10mm', 5.9]);
+  igual('percentuais sem ruído de ponto flutuante ao salvar Configurações', [cfgSalva.tributos.pisCumulativo, cfgSalva.saida.pis], [0.0065, D.config.saida.pis]);
+  // adicionar item com o material novo: antes dava "Produto não encontrado"
+  a.aba('calc'); a.set('in-produto', 'Vidro Teste 10mm', 'change'); a.click('in-addOrc');
+  var info = a.texto('in-addOrcInfo');
+  ok(/Item adicionado/.test(info) && /foi incluído na configuração congelada/.test(info), 'item com material novo entra no orçamento: ' + info.slice(0, 120));
+  var o1 = a.orcAberto();
+  igual('snapshot ganhou só o material; dólar continua congelado', [o1.itens.length, o1.itens[1].inputs.produto, !!o1.configSnapshot.produtos.find(function (p) { return p.nome === 'Vidro Teste 10mm'; }), o1.configSnapshot.dolar], [2, 'Vidro Teste 10mm', true, dolar0]);
+  igual('item existente não muda', JSON.stringify(o1.itens[0].resultado) === res0, true);
+  // substituir o 1º item pelo material novo também funciona
+  a.aba('orcamentos'); a.botaoItem(0, 'Carregar').click(); a.set('in-produto', 'Vidro Teste 10mm', 'change'); a.click('in-addOrc');
+  ok(/Item substituído/.test(a.texto('in-addOrcInfo')), 'substituir por material novo: ' + a.texto('in-addOrcInfo').slice(0, 80));
+  a.aba('orcamentos'); a.botaoItem(0, 'Carregar').click(); a.set('in-produto', prod0, 'change'); a.click('in-addOrc');   // volta ao material original
+  // aviso "configuração diferente": só pelo dólar (material novo não conta)
+  a.aba('orcamentos');
+  ok(/diferente da congelada/.test(a.texto('oo-avisos')), 'aviso de configuração diferente por causa do dólar');
+  a.aba('config'); dol = a.doc.querySelector('[data-cfg="dolar"]'); dol.value = String(dolar0); dol.dispatchEvent(new a.w.Event('input', { bubbles: true })); a.disparar(500);
+  a.aba('orcamentos');
+  ok(!/diferente da congelada/.test(a.texto('oo-avisos')), 'dólar igual de novo: material novo cadastrado não acende o aviso');
+  // servidor aceita o orçamento com o material incluído no snapshot
+  await a.sync();
+  var srv = (await a.servidor()).find(function (x) { return x.dados.cliente.nome === 'Material novo'; });
+  igual('servidor aceitou (2 itens, material no snapshot)', [srv.dados.itens.length, !!srv.dados.configSnapshot.produtos.find(function (p) { return p.nome === 'Vidro Teste 10mm'; }), a.w.GM_NUVEM.pendentes()], [2, true, 0]);
+  // material RENOMEADO em Configurações: Recalcular não trava; mantém o cadastro congelado e avisa
+  a.aba('config');
+  linhas = a.doc.querySelectorAll('#cfg-produtos tbody tr');
+  var alvo = Array.prototype.find.call(linhas, function (tr) { return tr.querySelector('input').value === 'Vidro Teste 10mm'; });
+  muda(alvo.querySelector('input'), 'Vidro Teste 10mm (novo nome)'); a.disparar(500);
+  a.aba('orcamentos'); a.confirms.length = 0; a.click('orcRecalcular');
+  ok(a.confirms.length === 1 && /não existe mais em Configurações.*Vidro Teste 10mm — mantido com o cadastro congelado/.test(a.confirms[0].replace(/\n/g, ' ')), 'recalcular lista o material mantido: ' + (a.confirms[0] || '').slice(-200));
+  ok(/Itens recalculados/.test(a.texto('orcStatus')) && /Material mantido/.test(a.texto('orcStatus')), 'recalcular conclui: ' + a.texto('orcStatus'));
+  var o2 = a.orcAberto();
+  igual('snapshot novo = configuração atual + material antigo mantido', [!!o2.configSnapshot.produtos.find(function (p) { return p.nome === 'Vidro Teste 10mm'; }), !!o2.configSnapshot.produtos.find(function (p) { return p.nome === 'Vidro Teste 10mm (novo nome)'; })], [true, true]);
+  ok(!/diferente da congelada/.test(a.texto('oo-avisos')), 'depois de recalcular não fica pedindo "Recalcular" por causa do material antigo');
+  // carregar o item do material renomeado avisa para escolher o material
+  a.botaoItem(1, 'Carregar').click();
+  ok(/não existe mais em Configurações/.test(a.texto('in-addOrcInfo')), 'carregar item com material renomeado avisa');
+  igual('sem erros de página', a.errosPagina, []);
   await amb.fechar();
 })();
 

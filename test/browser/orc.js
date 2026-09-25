@@ -30,7 +30,7 @@ executar(async () => {
   await aba(p, 'orcamentos');
   igual('itens na tabela (3 + total)', await p.locator('#orc-itens table.itens tbody tr').count(), 4);
   igual('totais do orçamento', [await t(p, 'oo-total'), await t(p, 'oo-liqReal'), await t(p, 'oo-liqPres')], ['R$ 621.507,20', 'R$ 121.144,04', 'R$ 169.635,41']);
-  igual('DRE e proposta renderizadas', [await p.locator('#oo-dre tbody tr').count(), await p.locator('#proposta tbody tr').count()], [17, 4]);
+  igual('DRE e proposta renderizadas', [await p.locator('#oo-dre tbody tr').count(), await p.locator('#proposta table.p-itens tbody tr').count()], [17, 4]);
   contem('avisos', await t(p, 'oo-avisos'), 'nada pendente');
   // 5. custo interno fixo
   await p.click('#orcAddCusto'); await p.waitForTimeout(100);
