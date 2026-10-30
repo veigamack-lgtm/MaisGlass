@@ -14,21 +14,21 @@ depois em Vercel → Domains).
 
 | Arquivo | Função |
 |---|---|
-| `index.html` | Interface (login, Início, três calculadoras, Orçamentos, Configurações, Usuários). CSS embutido com a identidade visual MaisGlass, inclusive o de impressão da proposta. |
+| `index.html` | Interface (login, Início, três calculadoras, Orçamentos, Custo de operação, Configurações, Usuários). CSS embutido com a identidade visual MaisGlass, inclusive o de impressão da proposta. |
 | `marca/` | Logos da MaisGlass (horizontal branca no topo, vertical metálica na entrada, horizontal metálica na proposta, grafite no rodapé), ícones (favicon, atalho do celular) e as fontes Inter e Montserrat (`marca/fontes/`, licença OFL) servidas pelo próprio site. |
 | `termos.js` | Textos da proposta comercial (referência, introdução, normas, OBJETO e cláusulas 1–13, encerramento), complementos automáticos a partir do orçamento e validação dos campos da proposta. Usado pelo app e pelo servidor. Não participa de nenhum cálculo. |
-| `calc.js` | Motor de cálculo puro (sem DOM). Cada fórmula cita a célula da planilha de origem. |
-| `defaults.js` | Valores padrão: produtos, classes fiscais + NCM, despesas nacionais, entreposto, cartão, DIFAL. É o "Restaurar padrão". |
+| `calc.js` | Motor de cálculo puro (sem DOM). Cada fórmula cita a célula da planilha de origem. Também o rateio do custo de operação (`resumoOperacao`, `custoOperacaoDe`, `dreComOperacao`). |
+| `defaults.js` | Valores padrão: produtos, classes fiscais + NCM, despesas nacionais, entreposto, cartão, DIFAL, custo de operação (vazio). É o "Restaurar padrão". |
 | `orcamento.js` | Motor do módulo Orçamentos (puro): consolida itens das três calculadoras, custos internos, DRE real × presumido. Usado também pelo servidor para validar. |
-| `app.js` | Liga interface ↔ motores; login; cache local; exportar/importar JSON; aba Orçamentos, proposta impressa, aba Usuários. |
+| `app.js` | Liga interface ↔ motores; login; cache local; exportar/importar JSON; aba Orçamentos, proposta impressa, aba Custo de operação, aba Usuários. |
 | `nuvem.js` | Sincronização com o servidor: fila de envio, recebimento periódico, conflito por versão (409/410), migração de orçamentos locais. |
 | `api/` | Funções da Vercel (Node). `api/_lib/app.js` tem todas as rotas e regras; `repositorio.js` fala com o Neon (e tem uma versão em memória para testes); `auth.js` senhas/sessões; `validar.js` usa os motores. |
 | `vercel.json` | Região das funções em São Paulo (`gru1`, ao lado do banco), instalação só das dependências de produção, cabeçalhos de segurança. |
 | `package.json` | Dependência de produção: `@neondatabase/serverless`. Dependências de teste: jsdom, pg, playwright. |
-| `test/test.js` | Motor (planilha, memorial da contadora, orçamentos): `node test/test.js` — 565 verificações, sem dependências. |
+| `test/test.js` | Motor (planilha, memorial da contadora, orçamentos): `node test/test.js` — 645 verificações, sem dependências. |
 | `test/termos.js` | Textos da proposta: cláusulas, complementos automáticos (pagamento, frete, prazo, validade, perda, dólar, FCP), numeração, textos do administrador, validação — 52 verificações. |
-| `test/api.js` | API contra o servidor local em memória: `node test/api.js` — 73 verificações. Com `PG_TESTE_URL=postgres://…` roda o mesmo contra um Postgres de verdade (usa `pg`; **nunca** aponte para o banco de produção — ele apaga as tabelas). |
-| `test/ui.js` | Interface em jsdom com o servidor local: duas "máquinas", conflitos, exclusão, fila sem rede, migração, usuários, cópia de segurança, emissão/proposta antiga, material cadastrado depois do orçamento — 223 verificações. |
+| `test/api.js` | API contra o servidor local em memória: `node test/api.js` — 79 verificações. Com `PG_TESTE_URL=postgres://…` roda o mesmo contra um Postgres de verdade (usa `pg`; **nunca** aponte para o banco de produção — ele apaga as tabelas). |
+| `test/ui.js` | Interface em jsdom com o servidor local: duas "máquinas", conflitos, exclusão, fila sem rede, migração, usuários, cópia de segurança, emissão/proposta antiga, material cadastrado depois do orçamento, custo de operação — 251 verificações. |
 | `test/browser/` | Playwright (Chromium) assert-based, cada script sobe o próprio servidor local — `node test/browser/todos.js`; ver `test/browser/README.md`. |
 | `test/servidor-local.js` | Servidor local: arquivos + a mesma API com banco em memória. `node test/servidor-local.js` → http://localhost:8765 (admin@maisglass.local / admin12345). |
 
@@ -422,6 +422,73 @@ Compõe um orçamento para um cliente com itens das três calculadoras. Regras
   e blocos "Parecer 3/4/5"; ciclos de interface (carregar/substituir, gravação
   adiada × exclusão/recusa/recriação, importação com data impossível) em
   `test/ui.js` (jsdom) e `test/browser/p5.js`/`p6.js` (Chromium).
+
+## Custo de operação (aba própria, out/2026)
+
+Custos fixos mensais da fábrica — aluguel do galpão, folha e encargos, energia,
+manutenção, administrativo/overhead, financeiro — rateados por m² e levados
+para a DRE das simulações e dos orçamentos, ligando e desligando caso a caso.
+
+- **Onde fica**: aba **Custo de operação** (entre Orçamentos e Configurações).
+  É parte da configuração da empresa (`config.operacao`): mesmo rascunho,
+  mesmo salvamento automático (meio segundo depois de digitar), mesma
+  sincronização entre computadores e mesma regra de acesso (administradores
+  editam; usuários veem e podem ligar/desligar nas próprias simulações e
+  orçamentos). `defaults.js → operacao` é o "restaurar padrão" (vazio).
+- **Cadastro**: lançamentos `{ id, categoria, descricao, valorMensal }` com
+  categorias fixas (`calc.js → CATEGORIAS_OPERACAO`: aluguel, pessoal,
+  energia, manutenção, insumos fixos de produção, administrativo, financeiro,
+  outros) e a **produção média mensal da fábrica em m²**
+  (`producaoMensalM2`), configurável e revisável a qualquer momento.
+- **Fórmula** (`calc.js → resumoOperacao`): `R$/m² = Σ valorMensal ÷
+  producaoMensalM2`. A base é a produção média de **um mês de operação**,
+  nunca os m² do orçamento em questão — esses só multiplicam depois:
+  `custo = R$/m² × m² vendidos` (`custoOperacaoDe`). Sem lançamentos ou sem
+  produção informada a taxa é 0 e a tela avisa.
+- **Efeito**: só na DRE, abaixo do lucro bruto, ao lado de frete, cartão e
+  custos internos: reduz o lucro operacional e, no lucro real, a base do
+  IRPJ/CSLL (premissa declarada `custoOperacaoDedutivel: true`, sem crédito de
+  PIS/COFINS, como os custos internos); no presumido o IRPJ/CSLL não muda (a
+  base é a receita). Não entra na NF, em base de imposto, no preço digitado nem
+  nos números da planilha (`calcular()` intacta, hash conferido no teste); não
+  sai na proposta impressa.
+- **Calculadoras**: caixa "Incorporar o custo de operação da fábrica (rateio
+  por m²)" em cada aba, acima da DRE, com o detalhe `R$/m² × m² = R$`. Começa
+  como `operacao.padraoCalculadoras` (padrão **desligada**, para a tela
+  continuar espelhando a planilha). Ligada, `calc.js → dreComOperacao` refaz a
+  DRE e os dois cartões de lucro líquido; a linha "Custo de operação" aparece
+  na DRE; o quadro "Composição do custo" e o "Lucro" da planilha não mudam.
+  O item enviado a um orçamento **não** leva esse custo — lá o rateio é
+  decidido pelo próprio orçamento.
+- **Orçamentos**: `orcamento.custoOperacao = { aplicar }`. Orçamento novo nasce
+  ligado quando `operacao.padraoOrcamentos` (padrão **ligado**) **e** já existe
+  taxa cadastrada (custos + produção média); com a aba ainda vazia nasce
+  desligado, sem linha nem aviso. Orçamento anterior à aba (sem o campo) é
+  migrado **desligado** — nenhum número muda sozinho. A
+  taxa usada é a do `configSnapshot` **congelado** (`consolidar` lê
+  `resumoOperacao(configSnapshot)` × m² dos itens calculados); mudar a aba
+  depois não altera orçamentos salvos — "Recalcular com a configuração atual"
+  traz a taxa nova, e o aviso "configuração diferente da congelada" considera
+  `operacao` **só quando o orçamento aplica** o custo. Cartão "Custo de
+  operação da fábrica" no editor (liga/desliga; travado após a emissão, como
+  os custos internos), linha própria na DRE consolidada, fatia própria no
+  gráfico "Para onde vai o valor pago" e menção no resumo do total.
+  `totais.custoOperacao`, `totais.custoTotalReal` (inclui) e o bloco
+  `consolidar().operacao` (`aplicar, configurado, taxaM2, totalMensal,
+  producaoMensalM2, m2, valor`). Ligado sem taxa (sem lançamentos, sem
+  produção, ou snapshot anterior à aba) → custo 0 e aviso dizendo o que falta.
+  Validação (app e servidor, `validarOrcamento`/`validarConfig`): `aplicar`
+  booleano; lançamentos com id único, categoria conhecida, valor não negativo;
+  produção não negativa; padrões booleanos; o bloco é opcional (snapshots
+  antigos). `VERSAO_MOTOR` não mudou: os motores dos itens são os mesmos e a
+  consolidação só ganha uma linha opcional.
+- **Números de referência** (`test/test.js`, bloco "Custo de operação"):
+  R$ 70.000/mês ÷ 3.500 m²/mês = **R$ 20,00/m²**; cenário da planilha (1.336
+  m²) → **R$ 26.720,00**; lucro operacional real 84.765,33 → 58.045,33;
+  IRPJ/CSLL 28.820,21 → 19.735,41; lucro líquido real 55.945,12 →
+  **38.309,92**; presumido 82.364,69 → 55.644,69 (IRPJ/CSLL inalterado).
+  Orçamento com importação (1.336 m²) + revenda §4 (600 m²): 20 × 1.936 =
+  **38.720,00**; item sem resultado não entra no rateio.
 
 ## Identidade visual (manual de marca, set/2026)
 

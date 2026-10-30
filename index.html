@@ -184,7 +184,18 @@
   .orc-conflito .btn { margin-right: 6px; margin-top: 6px; }
   .senha-inicial { background: #F3F6F7; border: 1px solid #CCD6DA; border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
   .senha-inicial code { font-size: 16px; letter-spacing: 1px; }
-  #tab-config.somente-leitura input, #tab-config.somente-leitura select, #tab-config.somente-leitura textarea { background: #F2F1ED; }
+  #tab-config.somente-leitura input, #tab-config.somente-leitura select, #tab-config.somente-leitura textarea,
+  #tab-operacao.somente-leitura input, #tab-operacao.somente-leitura select { background: #F2F1ED; }
+  /* liga/desliga do custo de operação (calculadoras e orçamento) */
+  .op-toggle { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 4px 0 10px; }
+  .op-toggle label { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .op-toggle input { width: auto; margin: 0; }
+  .op-toggle .hint { margin: 0; }
+  table.operacao td.num, table.operacao th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.operacao td:first-child select { min-width: 150px; max-width: 175px; } table.operacao td.txt { min-width: 120px; } table.operacao td.txt input { min-width: 120px; width: 100%; } table.operacao input[type=number] { min-width: 86px; width: 100px; }
+  table.operacao td, table.operacao th { padding-left: 6px; padding-right: 6px; }
+  #tab-operacao .grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  @media (max-width: 860px) { #tab-operacao .grid { grid-template-columns: minmax(0, 1fr); } }
 
   /* ---------- início ---------- */
   .home-title { font: 700 22px/1.25 var(--font-marca); margin: 6px 0 4px; letter-spacing: -.2px; }
@@ -348,6 +359,7 @@
     <button data-tab="revenda">Revenda de importado</button>
     <button data-tab="nacional">Indústria nacional</button>
     <button data-tab="orcamentos">Orçamentos</button>
+    <button data-tab="operacao">Custo de operação</button>
     <button data-tab="config">Configurações</button>
     <button data-tab="usuarios" class="hidden">Usuários</button>
   </nav>
@@ -455,6 +467,7 @@
       <div class="card" style="margin-top:20px">
         <h2>DRE da operação — lucro real × lucro presumido <small style="font-weight:400;color:#6b7280">(estimativa gerencial)</small></h2>
         <p class="hint">Estimativa gerencial — não é apuração. Efeito desta venda nos dois regimes, montado a partir dos mesmos números da calculadora acima (o lucro operacional é o mesmo "Lucro" da planilha). Lucro real: PIS/COFINS líquidos dos créditos da importação e IRPJ/CSLL 34% (alíquota marginal; premissa: empresa acima da faixa do adicional). Presumido: 3,65% sem crédito e IRPJ/CSLL 25% + 9% sobre 8%/12% da receita. A apuração de verdade é do período inteiro — validar com a contadoria.</p>
+        <div class="op-toggle"><label><input type="checkbox" id="in-custoOperacao"> Incorporar o custo de operação da fábrica (rateio por m²)</label><span class="hint" id="in-custoOperacaoInfo"></span></div>
         <div class="table-wrap"><table class="dre" id="out-dre"></table></div>
       </div>
 
@@ -545,6 +558,7 @@
       <div class="card" style="margin-top:20px">
         <h2>DRE da operação — lucro real × lucro presumido <small style="font-weight:400;color:#6b7280">(estimativa gerencial)</small></h2>
         <p class="hint">Estimativa gerencial — não é apuração. Efeito incremental desta venda nos dois regimes; a apuração de verdade é do período inteiro. Lucro real (regime atual): IRPJ/CSLL 34% (alíquota marginal; premissa: empresa acima da faixa do adicional). Presumido (simulação): 3,65% sem crédito e IRPJ/CSLL 25% + 9% sobre 8%/12% da receita — decisão anual, vale para a empresa inteira; validar com a contadoria.</p>
+        <div class="op-toggle"><label><input type="checkbox" id="r-custoOperacao"> Incorporar o custo de operação da fábrica (rateio por m²)</label><span class="hint" id="r-custoOperacaoInfo"></span></div>
         <div class="table-wrap"><table class="dre" id="ro-dre"></table></div>
       </div>
 
@@ -668,6 +682,12 @@
               <div class="table-wrap" id="orc-custos"></div>
               <button class="btn small" id="orcAddCusto" style="margin-top:8px">+ Adicionar custo</button>
             </div>
+            <div class="card" style="margin-top:20px">
+              <h2>Custo de operação da fábrica <small style="font-weight:400;color:var(--muted)">(rateio por m²)</small></h2>
+              <p class="hint">Custos fixos mensais (aluguel do galpão, pessoal, energia, manutenção, overhead) cadastrados na aba <b>Custo de operação</b>, divididos pela <b>produção média mensal</b> de lá — nunca pelos m² deste orçamento. Aqui o R$/m² é multiplicado pelos m² dos itens e entra só na DRE (reduz o lucro operacional e, no lucro real, a base do IRPJ/CSLL). Não vai para a proposta nem muda os preços. A taxa usada é a da configuração congelada neste orçamento.</p>
+              <div class="op-toggle"><label><input type="checkbox" id="o-custoOperacao"> Incorporar o custo de operação neste orçamento</label></div>
+              <p class="hint" id="o-custoOperacaoInfo"></p>
+            </div>
           </div>
           <div>
             <div class="result-hero">
@@ -706,6 +726,47 @@
         <div class="card card-proposta" style="margin-top:20px">
           <h2>Proposta para o cliente <small style="font-weight:400;color:var(--muted)">(é o que sai na impressão — sem custo, lucro ou DRE; os termos e condições vêm de Configurações)</small></h2>
           <div id="proposta"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- ABA CUSTO DE OPERAÇÃO (custos fixos mensais rateados por m²; faz parte da configuração da empresa) ---------- -->
+    <section id="tab-operacao" class="hidden">
+      <div class="toolbar">
+        <button class="btn primary" id="opSalvar">Salvar agora</button>
+        <span class="status" id="opStatus"></span>
+      </div>
+      <p class="hint hidden" id="opSomenteLeitura"><strong>Somente leitura:</strong> o custo de operação faz parte da configuração da empresa e só administradores podem alterá-lo. Você pode ligar ou desligar o rateio nas suas simulações e orçamentos.</p>
+      <div class="grid">
+        <div>
+          <div class="card purple">
+            <h2>Lançamentos mensais</h2>
+            <p class="hint">Tudo que a fábrica paga por mês independentemente de quanto vende: aluguel do galpão, folha e encargos, energia, manutenção das máquinas, administrativo (overhead), financeiro. Valores em R$ por mês. Não lance aqui o que já entra no custo de cada venda (vidro, frete da NF, cartão, comissão do orçamento).</p>
+            <div class="table-wrap" id="op-itens"></div>
+            <button class="btn small" id="opAddItem" style="margin-top:8px">+ Adicionar custo mensal</button>
+          </div>
+          <div class="card purple" style="margin-top:20px">
+            <h2>Base de rateio</h2>
+            <div class="field wide"><label>Produção média mensal da fábrica (m²)<small>Média de m² vendidos/beneficiados por mês. É este número que divide o custo mensal — não os m² de cada orçamento. Atualize aqui quando a média mudar.</small></label><input type="number" step="1" min="0" data-cfg="operacao.producaoMensalM2" data-type="num" placeholder="ex.: 3500"></div>
+            <div class="field"><label>Orçamento novo já incorpora?<small>Padrão do botão "Incorporar o custo de operação" nos orçamentos novos, quando já houver taxa cadastrada aqui (cada orçamento pode ligar/desligar; os já salvos não mudam)</small></label><select data-cfg="operacao.padraoOrcamentos" data-type="bool"><option value="1">Sim</option><option value="0">Não</option></select></div>
+            <div class="field"><label>Calculadoras já incorporam?<small>Estado inicial do botão nas três calculadoras ao abrir o app (a planilha original não tem esse custo)</small></label><select data-cfg="operacao.padraoCalculadoras" data-type="bool"><option value="0">Não</option><option value="1">Sim</option></select></div>
+          </div>
+        </div>
+        <div>
+          <div class="result-hero">
+            <div class="label">Custo de operação por m²</div>
+            <div class="value" id="op-taxa">—</div>
+            <div class="sub" id="op-taxaSub"></div>
+          </div>
+          <div class="card">
+            <h2>Como entra nos cálculos</h2>
+            <div class="kv"><span class="k">Custo fixo mensal total</span><span class="v" id="op-total">—</span></div>
+            <div class="kv"><span class="k">÷ Produção média mensal</span><span class="v" id="op-producao">—</span></div>
+            <div class="kv total"><span class="k">= Custo de operação por m²</span><span class="v" id="op-taxa2">—</span></div>
+            <p class="hint" style="margin-top:10px">Em cada orçamento ou simulação: <b>R$/m² × m² vendidos</b>. Entra só na DRE, abaixo do lucro bruto (ao lado de frete, cartão e custos internos): reduz o lucro operacional e, no lucro real, a base do IRPJ/CSLL (premissa: despesa dedutível, sem crédito de PIS/COFINS). Não entra na nota fiscal, em base de imposto nem no preço digitado — a calculadora continua espelhando a planilha; o custo aparece como uma linha a mais. Orçamentos já salvos usam a taxa congelada neles; "Recalcular com a configuração atual" traz a taxa nova.</p>
+            <p class="hint" id="op-exemplo"></p>
+            <div class="notes" id="op-avisos"></div>
+          </div>
         </div>
       </div>
     </section>

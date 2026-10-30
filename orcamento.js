@@ -8,6 +8,7 @@
  *   calcularItem(config, cabecalho, item)      → { inputs, resultado, avisos } (cabeçalho manda em UF/destinatário/pagamento)
  *   adaptarDre(origem, resultado)              → DRE do item numa convenção única (deduções cheias; CMV líquido dos créditos)
  *   consolidar(orcamento)                      → totais, DRE consolidada, composição, avisos — só com o que está no orçamento
+ *                                                (inclui o custo de operação: taxa R$/m² do configSnapshot × m² dos itens, se orcamento.custoOperacao.aplicar)
  *   validarOrcamento(orcamento)                → lista de erros (vazia = OK)
  *   conferirResultados(orcamento)              → itens cujo snapshot não bate com o recálculo (configSnapshot)
  *   migrarOrcamento(orcamento)                 → completa campos opcionais; recusa formato futuro
@@ -85,6 +86,7 @@
       pisCumulativo: tb.pisCumulativo, cofinsCumulativo: tb.cofinsCumulativo,
       lc224: tb.lc224 === true,
       custosInternosDedutiveis: true,     // simplificação declarada da v1
+      custoOperacaoDedutivel: true,       // custo de operação (rateio por m², out/2026): despesa dedutível no lucro real, sem crédito — mesma premissa dos custos internos
       creditoFreteContratado: false,      // simplificação declarada da v1 (pendência com a contadoria)
       arredondamento: 'exibicao',         // motor em precisão cheia; arredonda só na tela/proposta
       versaoMotor: VERSAO_MOTOR
@@ -108,9 +110,14 @@
       empresa: { razaoSocial: emp.razaoSocial || '', cnpj: emp.cnpj || '', endereco: emp.endereco || '', telefone: emp.telefone || '', email: emp.email || '' },
       premissas: premissasDe(config),
       configSnapshot: clone(config),
-      itens: [], custosInternos: []
+      itens: [], custosInternos: [],
+      // custo de operação (rateio por m² da aba Custo de operação): liga/desliga por orçamento. Nasce ligado quando o padrão
+      // da configuração manda E já existe taxa cadastrada (custos + produção média); com a aba ainda vazia nasce desligado,
+      // sem linha nem aviso — liga-se no editor quando quiser.
+      custoOperacao: { aplicar: isObj(config.operacao) && config.operacao.padraoOrcamentos !== false && CALC.resumoOperacao(config).taxaM2 > 0 }
     };
   }
+  function aplicaCustoOperacao(o) { return isObj(o.custoOperacao) && o.custoOperacao.aplicar === true; }
 
   /* Cabeçalho do orçamento: campos do cliente que valem para TODOS os itens */
   function cabecalhoDe(orcamento) {
@@ -271,13 +278,23 @@
     var transporteInterno = custos.some(function (c) { return TIPOS_TRANSPORTE.indexOf(c.tipo) >= 0; });
     if (freteItens && transporteInterno) avisos.push('Há frete cobrado na NF em item(ns) e custo interno de transporte: o motor já trata o frete cobrado como despesa de igual valor — confira se não é o mesmo transporte contado duas vezes.');
 
+    // custo de operação (out/2026): taxa R$/m² CONGELADA no configSnapshot × m² vendidos dos itens calculados.
+    // A taxa é custos fixos mensais ÷ produção média mensal da fábrica (aba Custo de operação) — os m² do orçamento só multiplicam.
+    var aplicarOp = aplicaCustoOperacao(orcamento);
+    var opResumo = CALC.resumoOperacao(orcamento.configSnapshot);
+    var m2Operacao = calculados.reduce(function (s, it) { var q = Number(it.inputs && it.inputs.quantidade); return s + (isFin(q) && q > 0 ? q : 0); }, 0);
+    var custoOperacao = aplicarOp ? opResumo.taxaM2 * m2Operacao : 0;
+    if (aplicarOp && calculados.length) opResumo.avisos.forEach(function (a) { avisos.push('Custo de operação ligado, mas ' + a); });
+    var operacao = { aplicar: aplicarOp, configurado: opResumo.configurado, taxaM2: opResumo.taxaM2, totalMensal: opResumo.totalMensal, producaoMensalM2: opResumo.producaoMensalM2, lancamentos: opResumo.lancamentos, m2: m2Operacao, valor: custoOperacao };
+
     function regime(reg) {
       var t = {};
       linhasAditivas.forEach(function (k) { t[k] = dres.reduce(function (s, d) { return s + (d[reg][k] || 0); }, 0); });
       t.receitaLiquida = t.receitaBruta - t.deducoes;
       t.lucroBruto = t.receitaLiquida - t.cmv;
       t.custosInternos = custosInternos;
-      t.lucroOperacional = t.lucroBruto - t.frete - t.cartao - custosInternos;
+      t.custoOperacao = custoOperacao; t.custoOperacaoAplicado = aplicarOp;
+      t.lucroOperacional = t.lucroBruto - t.frete - t.cartao - custosInternos - custoOperacao;
       if (reg === 'real') t.irpjCsll = Math.max(0, t.lucroOperacional) * numFin(p.irpjCsllReal, 'premissa irpjCsllReal');
       else t.irpjCsll = dres.reduce(function (s, d) { return s + d.presumido.irpjCsll; }, 0);
       t.lucroLiquido = t.lucroOperacional - t.irpjCsll;
@@ -299,7 +316,8 @@
       totalCliente: receitaBruta,
       custoItens: custoItens, lucroItens: lucroItens,
       custosInternos: custosInternos,
-      custoTotalReal: custoItens + custosInternos,            // "custo total antes de IRPJ/CSLL — cenário lucro real"
+      custoOperacao: custoOperacao,
+      custoTotalReal: custoItens + custosInternos + custoOperacao,   // "custo total antes de IRPJ/CSLL — cenário lucro real"
       lucroOperacional: real.lucroOperacional,
       margemOperacional: receitaBruta > 0 ? real.lucroOperacional / receitaBruta : null
     };
@@ -308,9 +326,10 @@
       { chave: 'cmv', nome: 'Mercadoria (CMV)', valor: real.cmv },
       { chave: 'freteCartao', nome: 'Frete na NF + cartão', valor: real.frete + real.cartao },
       { chave: 'internos', nome: 'Custos internos', valor: custosInternos },
+      { chave: 'operacao', nome: 'Custo de operação (rateio por m²)', valor: custoOperacao },
       { chave: 'lucro', nome: 'Lucro líquido', valor: real.lucroLiquido }
     ];
-    return { real: real, presumido: presumido, itens: resumos, custos: custosDetalhe, totais: totais, composicao: composicao, avisos: avisos, premissas: clone(p) };
+    return { real: real, presumido: presumido, itens: resumos, custos: custosDetalhe, operacao: operacao, totais: totais, composicao: composicao, avisos: avisos, premissas: clone(p) };
   }
 
   /* ---------- validação ---------- */
@@ -421,6 +440,10 @@
         if (ci.descricao !== undefined && typeof ci.descricao !== 'string') e.push(rot + ': descrição deve ser texto.');
       });
     }
+    if (o.custoOperacao !== undefined) {
+      if (!isObj(o.custoOperacao)) e.push('custoOperacao deve ser um objeto.');
+      else if (typeof o.custoOperacao.aplicar !== 'boolean') e.push('custoOperacao.aplicar deve ser verdadeiro/falso.');
+    }
     return e;
   }
 
@@ -476,6 +499,7 @@
     if (o.condicoes !== undefined && !isObj(o.condicoes)) throw new Error('Orçamento malformado: "condicoes" deve ser um objeto.');
     if (o.empresa !== undefined && !isObj(o.empresa)) throw new Error('Orçamento malformado: "empresa" deve ser um objeto.');
     if (o.cliente !== undefined && !isObj(o.cliente)) throw new Error('Orçamento malformado: "cliente" deve ser um objeto.');
+    if (o.custoOperacao !== undefined && !isObj(o.custoOperacao)) throw new Error('Orçamento malformado: "custoOperacao" deve ser um objeto.');
     var out = clone(o);
     out.versaoFormato = VERSAO_FORMATO;
     if (!isFin(out.revisao)) out.revisao = 1;
@@ -483,6 +507,8 @@
     if (!out.status) out.status = 'rascunho';
     if (out.itens === undefined) out.itens = [];
     if (out.custosInternos === undefined) out.custosInternos = [];
+    // orçamento anterior à aba Custo de operação: nasce DESLIGADO (nenhum número muda sozinho; liga-se no editor)
+    if (out.custoOperacao === undefined) out.custoOperacao = { aplicar: false };
     if (out.condicoes === undefined) out.condicoes = {};
     if (!isObj(out.condicoes.inclusos)) out.condicoes.inclusos = { frete: false, instalacao: false, texto: '' };
     if (out.empresa === undefined) out.empresa = { razaoSocial: '', cnpj: '', endereco: '', telefone: '', email: '' };
@@ -524,6 +550,6 @@
     divergenciasCabecalho: divergenciasCabecalho, classificarAliquotaSaida: classificarAliquotaSaida, calcularItem: calcularItem, adaptarDre: adaptarDre, consolidar: consolidar,
     validarOrcamento: validarOrcamento, validarResultadoItem: validarResultadoItem, compararResultados: compararResultados, conferirResultados: conferirResultados,
     migrarOrcamento: migrarOrcamento, gerarId: gerarId, aliquotaSaidaAuto: aliquotaSaidaAuto, fcpPendente: fcpPendente, emitido: emitido,
-    dataValida: dataValida
+    dataValida: dataValida, aplicaCustoOperacao: aplicaCustoOperacao
   };
 })(typeof module !== 'undefined' ? module.exports : window);

@@ -17,6 +17,18 @@
    * parametrizado para Minas dentro de calcular(); permitir outra UF deixaria a calc 1 incoerente (parecer Codex nº 2, item 1). */
   var EMPRESA_UF = 'MG';
 
+  /* Categorias dos lançamentos da aba "Custo de operação" (config.operacao.itens[].categoria) — ver resumoOperacao() */
+  var CATEGORIAS_OPERACAO = {
+    aluguel: 'Aluguel do galpão',
+    pessoal: 'Pessoal (folha, encargos, pró-labore)',
+    energia: 'Energia e utilidades',
+    manutencao: 'Manutenção de máquinas',
+    producao: 'Insumos fixos de produção',
+    administrativo: 'Administrativo / overhead',
+    financeiro: 'Financeiro (tarifas, seguros, juros)',
+    outros: 'Outros'
+  };
+
   /* Regiões para a alíquota interestadual (Resolução do Senado 22/1989):
    * 7% quando a mercadoria sai do Sul/Sudeste (exceto ES) para Norte, Nordeste, Centro-Oeste ou ES; 12% nos demais casos.
    * Mercadoria importada (ou com conteúdo de importação > 40%): 4% em qualquer interestadual (Resolução 13/2012). */
@@ -216,6 +228,31 @@
         tenta(function () { inteiro(cfg.proposta.validadeDias, 'proposta.validadeDias', 0, 365); });
         ['prazoEntrega', 'observacoes'].forEach(function (f) {
           if (cfg.proposta[f] !== undefined && typeof cfg.proposta[f] !== 'string') erros.push('proposta.' + f + ' deve ser texto.');
+        });
+      }
+    }
+    // Custo de operação (opcional: configurações congeladas em orçamentos antigos não têm o bloco)
+    var op = cfg.operacao;
+    if (op !== undefined) {
+      if (!isObj(op)) erros.push('Custo de operação inválido.');
+      else {
+        tenta(function () { nonNeg(op.producaoMensalM2, 'operacao.producaoMensalM2'); });
+        if (!Array.isArray(op.itens)) erros.push('Lançamentos do custo de operação devem ser uma lista.');
+        else {
+          var idsOp = {};
+          op.itens.forEach(function (it, i) {
+            var rot = 'custo de operação ' + (i + 1);
+            if (!isObj(it)) { erros.push(rot + ' inválido.'); return; }
+            if (typeof it.id !== 'string' || !it.id) erros.push(rot + ' sem id.');
+            else if (has(idsOp, it.id)) erros.push(rot + ': id duplicado (' + it.id + ').');
+            else idsOp[it.id] = true;
+            if (typeof it.categoria !== 'string' || !has(CATEGORIAS_OPERACAO, it.categoria)) erros.push(rot + ': categoria desconhecida (' + it.categoria + ').');
+            if (it.descricao !== undefined && typeof it.descricao !== 'string') erros.push(rot + ': descrição deve ser texto.');
+            tenta(function () { nonNeg(it.valorMensal, rot + ' valor mensal'); });
+          });
+        }
+        ['padraoOrcamentos', 'padraoCalculadoras'].forEach(function (k) {
+          if (op[k] !== undefined && typeof op[k] !== 'boolean') erros.push('operacao.' + k + ' deve ser verdadeiro/falso.');
         });
       }
     }
@@ -699,6 +736,64 @@
     return { real: dre('real'), presumido: dre('presumido') };
   }
 
+  /* -------------------------------------------------------------------
+   * Custo de operação (out/2026) — custos fixos mensais da fábrica rateados por m².
+   *   taxaM2 = Σ valorMensal (lançamentos da aba Custo de operação) ÷ producaoMensalM2
+   * A base é a produção média de UM MÊS da fábrica (configurada na aba), nunca os m² do
+   * orçamento/simulação em questão — esses só multiplicam a taxa: custo = taxaM2 × m² vendidos.
+   * Estimativa gerencial: entra só na DRE (abaixo do lucro bruto, junto de frete/cartão/custos
+   * internos) e, no lucro real, reduz a base do IRPJ/CSLL (premissa: despesa dedutível, sem
+   * crédito de PIS/COFINS). Não altera NF, base de imposto, preço digitado nem calcular().
+   * Sem lançamentos ou sem produção informada, a taxa é 0 e resumoOperacao() devolve avisos.
+   * ----------------------------------------------------------------- */
+  function resumoOperacao(config) {
+    var op = isObj(config) && isObj(config.operacao) ? config.operacao : null;
+    var itens = op && Array.isArray(op.itens) ? op.itens : [];
+    var total = 0, lancamentos = 0;
+    itens.forEach(function (it) {
+      if (!isObj(it)) return;
+      var v = typeof it.valorMensal === 'string' && it.valorMensal.trim() !== '' ? Number(it.valorMensal) : it.valorMensal;
+      if (isFin(v) && v > 0) { total += v; lancamentos++; }
+    });
+    var prod = op && isFin(op.producaoMensalM2) && op.producaoMensalM2 > 0 ? op.producaoMensalM2 : 0;
+    var taxa = prod > 0 ? total / prod : 0;
+    var avisos = [];
+    if (!op) avisos.push('a configuração congelada não tem a aba Custo de operação (anterior a ela) — use "Recalcular com a configuração atual" para trazê-la.');
+    else {
+      if (total <= 0) avisos.push('nenhum custo mensal lançado na aba Custo de operação — rateio em zero.');
+      if (!(prod > 0)) avisos.push('produção média mensal (m²) não informada na aba Custo de operação — rateio em zero.');
+    }
+    return { configurado: !!op, totalMensal: total, lancamentos: lancamentos, producaoMensalM2: prod, taxaM2: taxa, avisos: avisos };
+  }
+  /* R$ de custo de operação rateado para uma quantidade de m² vendidos (0 se quantidade inválida ou taxa 0) */
+  function custoOperacaoDe(config, quantidadeM2) {
+    var q = typeof quantidadeM2 === 'string' && quantidadeM2.trim() !== '' ? Number(quantidadeM2) : quantidadeM2;
+    return isFin(q) && q > 0 ? resumoOperacao(config).taxaM2 * q : 0;
+  }
+  /* Cópia de uma DRE { real, presumido } (de dreImportacao ou calcularRevenda) com o custo de operação abatido:
+   *   lucroOperacional −= custo;  real: IRPJ/CSLL = irpjCsllReal × max(0, lucro operacional novo);
+   *   presumido: IRPJ/CSLL inalterado (a base é a receita);  lucro líquido, margens e tributos totais refeitos.
+   * A DRE de origem não é alterada; `custoOperacaoAplicado` marca a linha para a interface. */
+  function dreComOperacao(config, dre, custo) {
+    if (!isObj(config) || !isObj(dre) || !isObj(dre.real) || !isObj(dre.presumido)) throw new Error('DRE inválida para o custo de operação.');
+    var c = nonNeg(custo, 'custo de operação');
+    var tb = config.tributos || {};
+    var out = {};
+    ['real', 'presumido'].forEach(function (reg) {
+      var d = dre[reg], n = {};
+      Object.keys(d).forEach(function (k) { n[k] = d[k]; });
+      n.custoOperacao = c; n.custoOperacaoAplicado = true;
+      n.lucroOperacional = d.lucroOperacional - c;
+      n.irpjCsll = reg === 'real' ? Math.max(0, n.lucroOperacional) * fracao(tb.irpjCsllReal, 'IRPJ/CSLL real') : d.irpjCsll;
+      n.lucroLiquido = n.lucroOperacional - n.irpjCsll;
+      n.margemLiquida = d.receitaLiquida > 0 ? n.lucroLiquido / d.receitaLiquida : 0;
+      n.margemSobreValorPago = d.receitaBruta > 0 ? n.lucroLiquido / d.receitaBruta : 0;
+      n.tributosTotais = d.tributosTotais - d.irpjCsll + n.irpjCsll;
+      out[reg] = checarFinito(n);
+    });
+    return out;
+  }
+
   function fmtBRL(v) {
     return 'R$ ' + (Math.round(v * 100) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
@@ -717,5 +812,6 @@
   }
 
   root.GM_CALC = { calcular: calcular, calcularImportacao: calcularImportacao, calcularRevenda: calcularRevenda, dreImportacao: dreImportacao, aliquotaPresumido: aliquotaPresumido, aliquotaInterestadual: aliquotaInterestadual, derivarDifal: derivarDifal, migrarConfig: migrarConfig, EMPRESA_UF: EMPRESA_UF, custoImportacao: custoImportacao, taxaCartao: taxaCartao, booleano: booleano,
-    findProduto: findProduto, validarConfig: validarConfig, fmtBRL: fmtBRL, UFS: UFS };
+    findProduto: findProduto, validarConfig: validarConfig, fmtBRL: fmtBRL, UFS: UFS,
+    resumoOperacao: resumoOperacao, custoOperacaoDe: custoOperacaoDe, dreComOperacao: dreComOperacao, CATEGORIAS_OPERACAO: CATEGORIAS_OPERACAO };
 })(typeof module !== 'undefined' ? module.exports : window);
