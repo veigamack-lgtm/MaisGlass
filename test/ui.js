@@ -799,6 +799,74 @@ await (async function () {
   await amb.fechar();
 })();
 
+console.log('\n--- Custo de operação (aba nova, calculadoras e orçamento)');
+await (async function () {
+  var amb = await ambiente();
+  var a = await novaAba(amb);
+  function num(txt) { return Number(String(txt).replace(/[^\d,-]/g, '').replace(',', '.')); }   // "R$ 38.309,92" → 38309.92
+  // 1. aba: lançar um custo mensal e a produção média → R$/m²; salva junto com a configuração (autosave 500 ms)
+  a.aba('operacao');
+  ok(/Nenhum custo mensal/.test(a.texto('op-itens')) && a.texto('op-taxa') === '—', 'aba abre vazia, sem taxa');
+  a.click('opAddItem');
+  var tr = a.doc.querySelector('#op-itens tbody tr'), ins = tr.querySelectorAll('input'), sel = tr.querySelector('select');
+  function muda(inp, v) { inp.value = v; inp.dispatchEvent(new a.w.Event('change', { bubbles: true })); }
+  sel.value = 'pessoal'; sel.dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  muda(ins[0], 'Folha + aluguel + energia'); muda(ins[1], '70000');
+  var prod = a.doc.querySelector('[data-cfg="operacao.producaoMensalM2"]'); prod.value = '3500'; prod.dispatchEvent(new a.w.Event('input', { bubbles: true })); prod.dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  igual('taxa aparece antes mesmo do autosave: 70.000 ÷ 3.500', a.texto('op-taxa'), 'R$ 20,00 /m²');
+  a.disparar(500);
+  var cfgSalva = JSON.parse(a.w.localStorage.getItem('glassmais.config.v1'));
+  igual('configuração salva com o lançamento e a produção média', [cfgSalva.operacao.producaoMensalM2, cfgSalva.operacao.itens.length, cfgSalva.operacao.itens[0].categoria, cfgSalva.operacao.itens[0].valorMensal, cfgSalva.operacao.padraoOrcamentos, cfgSalva.operacao.padraoCalculadoras], [3500, 1, 'pessoal', 70000, true, false]);
+  ok(/Salvo automaticamente/.test(a.texto('opStatus')), 'status de salvamento aparece na própria aba: ' + a.texto('opStatus'));
+  await a.sync();
+  var rc = await a.w.fetch('/api/config', { headers: { 'X-Requested-With': 'MaisGlass' } }); var cfgSrv = (await rc.json()).dados;
+  igual('servidor recebeu o custo de operação', [cfgSrv.operacao.producaoMensalM2, cfgSrv.operacao.itens[0].valorMensal], [3500, 70000]);
+  // 2. calculadora de importação: desligada por padrão; ligar muda só a DRE/lucro líquido
+  a.aba('calc');
+  ok(!a.$('in-custoOperacao').checked, 'calculadora começa com o custo de operação desligado (padrão)');
+  var lucroPlanilha = a.texto('out-lucro'), liqAntes = num(a.texto('out-liqReal'));
+  ok(!/Custo de operação/.test(a.texto('out-dre')), 'DRE sem a linha enquanto desligado');
+  a.$('in-custoOperacao').checked = true; a.$('in-custoOperacao').dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  var liqDepois = num(a.texto('out-liqReal'));
+  ok(/R\$ 20,00\/m² × 1\.336,00 m² = R\$ 26\.720,00/.test(a.texto('in-custoOperacaoInfo')), 'detalhe do rateio ao lado da caixa: ' + a.texto('in-custoOperacaoInfo').slice(0, 80));
+  ok(/Custo de operação/.test(a.texto('out-dre')), 'DRE ganha a linha do custo de operação');
+  aprox('lucro líquido real cai 26.720 × 66% = 17.635,20', liqAntes - liqDepois, 17635.20, 0.01);
+  igual('"Lucro" da planilha não muda', a.texto('out-lucro'), lucroPlanilha);
+  // 3. orçamento novo: nasce ligado, com a taxa congelada; item adicionado não carrega o custo
+  a.novoOrc('Com overhead', 'RJ'); a.aba('calc'); a.click('in-addOrc'); a.aba('orcamentos');
+  var o = a.orcAberto();
+  igual('orçamento novo nasce com custoOperacao ligado e snapshot com a taxa', [o.custoOperacao, o.configSnapshot.operacao.producaoMensalM2, o.itens[0].resultado.dre.real.custoOperacao], [{ aplicar: true }, 3500, undefined]);
+  ok(a.$('o-custoOperacao').checked && /R\$ 20,00\/m² × 1\.336,00 m² \(itens calculados\) = R\$ 26\.720,00/.test(a.texto('o-custoOperacaoInfo')), 'cartão do orçamento mostra taxa × m²: ' + a.texto('o-custoOperacaoInfo').slice(0, 90));
+  ok(/Custo de operação da fábrica/.test(a.texto('oo-dre')), 'DRE do orçamento tem a linha');
+  ok(/custo de operação \(R\$ 26\.720,00\)/.test(a.texto('oo-totalSub')), 'resumo do total cita o custo de operação: ' + a.texto('oo-totalSub'));
+  var liqOrcOn = num(a.texto('oo-liqReal'));
+  await a.sync();
+  var srv = (await a.servidor()).find(function (x) { return x.dados.cliente.nome === 'Com overhead'; });
+  igual('servidor aceitou o orçamento com custoOperacao', [srv.dados.custoOperacao, a.w.GM_NUVEM.pendentes()], [{ aplicar: true }, 0]);
+  // 4. desligar no orçamento: linha some, lucro volta, gravado
+  a.$('o-custoOperacao').checked = false; a.$('o-custoOperacao').dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  ok(!/Custo de operação da fábrica/.test(a.texto('oo-dre')), 'desligado: linha some da DRE');
+  aprox('desligado: lucro líquido real sobe 17.635,20', num(a.texto('oo-liqReal')) - liqOrcOn, 17635.20, 0.01);
+  igual('desligado fica gravado no orçamento', a.orcAberto().custoOperacao, { aplicar: false });
+  ok(/Desligado neste orçamento/.test(a.texto('o-custoOperacaoInfo')) && /Se ligar: R\$ 20,00\/m²/.test(a.texto('o-custoOperacaoInfo')), 'texto explica o que aconteceria ao ligar');
+  // 5. aviso "configuração diferente da congelada": só pesa quando o orçamento aplica o custo de operação
+  a.aba('operacao'); prod = a.doc.querySelector('[data-cfg="operacao.producaoMensalM2"]'); prod.value = '7000'; prod.dispatchEvent(new a.w.Event('input', { bubbles: true })); a.disparar(500);
+  igual('produção média alterada para 7.000 → taxa 10', a.texto('op-taxa'), 'R$ 10,00 /m²');
+  a.aba('orcamentos');
+  ok(!/diferente da congelada/.test(a.texto('oo-avisos')), 'orçamento DESLIGADO: mudar a produção média não acende o aviso');
+  a.$('o-custoOperacao').checked = true; a.$('o-custoOperacao').dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  ok(/diferente da congelada/.test(a.texto('oo-avisos')), 'orçamento LIGADO: a taxa congelada (20) difere da atual (10) → aviso');
+  ok(/a configuração atual está em R\$ 10,00\/m²/.test(a.texto('o-custoOperacaoInfo')), 'cartão avisa que a taxa atual é outra');
+  a.confirms.length = 0; a.click('orcRecalcular');
+  ok(a.confirms.length === 1 && /Lucro líquido \(real\)/.test(a.confirms[0]), 'Recalcular pergunta mostrando o lucro antes → depois');
+  ok(/R\$ 10,00\/m² × 1\.336,00 m²/.test(a.texto('o-custoOperacaoInfo')) && !/diferente da congelada/.test(a.texto('oo-avisos')), 'depois de recalcular: taxa congelada = 10 e aviso apagado');
+  // 6. emitir trava o botão
+  a.set('o-status', 'enviado', 'change');
+  ok(a.$('o-custoOperacao').disabled, 'proposta emitida: liga/desliga do custo de operação fica travado');
+  igual('sem erros de página', a.errosPagina, []);
+  await amb.fechar();
+})();
+
 fim();
 })().catch(function (e) { console.error('ERRO NO SCRIPT:', e && e.stack || e); process.exit(1); });
 
