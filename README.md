@@ -28,7 +28,7 @@ depois em Vercel → Domains).
 | `test/test.js` | Motor (planilha, memorial da contadora, orçamentos): `node test/test.js` — 645 verificações, sem dependências. |
 | `test/termos.js` | Textos da proposta: cláusulas, complementos automáticos (pagamento, frete, prazo, validade, perda, dólar, FCP), numeração, textos do administrador, validação — 52 verificações. |
 | `test/api.js` | API contra o servidor local em memória: `node test/api.js` — 79 verificações. Com `PG_TESTE_URL=postgres://…` roda o mesmo contra um Postgres de verdade (usa `pg`; **nunca** aponte para o banco de produção — ele apaga as tabelas). |
-| `test/ui.js` | Interface em jsdom com o servidor local: duas "máquinas", conflitos, exclusão, fila sem rede, migração, usuários, cópia de segurança, emissão/proposta antiga, material cadastrado depois do orçamento, custo de operação — 251 verificações. |
+| `test/ui.js` | Interface em jsdom com o servidor local: duas "máquinas", conflitos, exclusão, fila sem rede, migração, usuários, cópia de segurança, emissão/proposta antiga, material cadastrado depois do orçamento, custo de operação, pareceres 7 e 8 (Salvar agora, sincronização durante a edição, padrão das calculadoras, digitar sem sair do campo, trocar de aba antes do autosave) — 294 verificações. |
 | `test/browser/` | Playwright (Chromium) assert-based, cada script sobe o próprio servidor local — `node test/browser/todos.js`; ver `test/browser/README.md`. |
 | `test/servidor-local.js` | Servidor local: arquivos + a mesma API com banco em memória. `node test/servidor-local.js` → http://localhost:8765 (admin@maisglass.local / admin12345). |
 
@@ -457,7 +457,9 @@ para a DRE das simulações e dos orçamentos, ligando e desligando caso a caso.
   como `operacao.padraoCalculadoras` (padrão **desligada**, para a tela
   continuar espelhando a planilha). Ligada, `calc.js → dreComOperacao` refaz a
   DRE e os dois cartões de lucro líquido; a linha "Custo de operação" aparece
-  na DRE; o quadro "Composição do custo" e o "Lucro" da planilha não mudam.
+  na DRE e o gráfico "Para onde vai o preço final" ganha a fatia "Custo de
+  operação da fábrica" (o lucro vira "Lucro após custo de operação"); o quadro
+  "Composição do custo" e o "Lucro" da planilha não mudam.
   O item enviado a um orçamento **não** leva esse custo — lá o rateio é
   decidido pelo próprio orçamento.
 - **Orçamentos**: `orcamento.custoOperacao = { aplicar }`. Orçamento novo nasce
@@ -482,6 +484,20 @@ para a DRE das simulações e dos orçamentos, ligando e desligando caso a caso.
   produção não negativa; padrões booleanos; o bloco é opcional (snapshots
   antigos). `VERSAO_MOTOR` não mudou: os motores dos itens são os mesmos e a
   consolidação só ganha uma linha opcional.
+- **Edição × salvamento × sincronização** (pareceres nº 7 e 8): "Salvar
+  agora" mantém a identidade do rascunho (as tabelas das duas abas continuam
+  ligadas a ele); as células das tabelas passam o valor digitado ao rascunho
+  **a cada tecla** (não só ao sair do campo), então o autosave grava o que
+  está na tela; enquanto há edição de configuração em andamento (`app.js →
+  configEmEdicao`: autosave agendado ou rascunho marcado como alterado —
+  **em qualquer aba**), `nuvem.js` **não aplica** a configuração recebida de
+  outra máquina (o status do topo avisa que ela está aguardando) — a gravação
+  local vai ao servidor, recebe 409 e a pergunta "sobrescrever × usar a do
+  servidor" decide; sair da aba ou fechar a página conclui o autosave
+  pendente (rascunho inválido continua protegido, com o motivo no status); o
+  padrão das calculadoras é aplicado na abertura e **uma vez** na primeira
+  configuração vinda do servidor (navegador novo), nunca por cima de uma
+  escolha manual.
 - **Números de referência** (`test/test.js`, bloco "Custo de operação"):
   R$ 70.000/mês ÷ 3.500 m²/mês = **R$ 20,00/m²**; cenário da planilha (1.336
   m²) → **R$ 26.720,00**; lucro operacional real 84.765,33 → 58.045,33;

@@ -116,9 +116,11 @@ recusa custo negativo e DRE sem `real`/`presumido`.
   (`custoOperacaoCalc`): com a caixa ligada a DRE e os dois cartões de lucro
   líquido vêm de `dreComOperacao` e aparece a linha "(−) Custo de operação da
   fábrica"; o texto ao lado mostra `R$/m² × m² = R$ (total ÷ produção)` ou o
-  que falta cadastrar. O quadro de composição do custo, o "Lucro" da planilha
-  e o gráfico **não mudam** (teste "Lucro da planilha não muda"). Estado
-  inicial = `padraoCalculadoras`.
+  que falta cadastrar. O gráfico "Para onde vai o preço final" ganha a fatia
+  "Custo de operação da fábrica" e o lucro vira "Lucro após custo de operação"
+  (`comFatiaOperacao`; pedido do Gabriel ao testar a prévia). O quadro de
+  composição do custo e o "Lucro" da planilha **não mudam** (teste "Lucro da
+  planilha não muda"). Estado inicial = `padraoCalculadoras`.
 - **Editor do orçamento**: cartão "Custo de operação da fábrica" com a caixa
   "Incorporar…" (travada após a emissão, como custos internos) e o detalhe da
   taxa congelada × m² (e, quando a taxa atual difere, a frase "a configuração
@@ -162,9 +164,10 @@ Custos: 15.000 aluguel + 42.000 pessoal + 6.500 energia + 6.500 administrativo
   (gravado e lido íntegro), valor negativo e categoria desconhecida → 400,
   configuração antiga aceita e migrada. (A expectativa "config versão 2" da
   carga completa virou 4 por causa das duas gravações novas.)
-- `node test/ui.js` (jsdom) → **251** (eram 223): aba (taxa antes do
+- `node test/ui.js` (jsdom) → **256** (eram 223): aba (taxa antes do
   autosave, salvamento, servidor), calculadora (desligada por padrão, ligar
-  muda só a DRE em 17.635,20 e o "Lucro" da planilha não muda), orçamento
+  muda só a DRE em 17.635,20 e o "Lucro" da planilha não muda; fatia no
+  gráfico da importação e da revenda, some ao desligar), orçamento
   (nasce ligado, snapshot com a taxa, item sem custo, servidor aceita,
   desligar grava e some a linha, aviso de configuração só quando ligado,
   Recalcular traz a taxa nova, emissão trava a caixa).

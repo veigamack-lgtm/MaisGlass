@@ -193,7 +193,7 @@
   var abaAtual = 'home';
   function mostrarAba(nome) {
     if (ABAS.indexOf(nome) < 0 || (nome === 'usuarios' && !ehAdmin())) nome = 'home';
-    if (ABAS_CONFIG.indexOf(abaAtual) >= 0 && nome !== abaAtual && draft) lerCamposSimples(); // guarda o que foi digitado (também ao trocar entre Configurações e Custo de operação)
+    if (ABAS_CONFIG.indexOf(abaAtual) >= 0 && nome !== abaAtual && draft) { if (autoTimer !== null) concluirAutoSalvarPendente(); else lerCamposSimples(); } // sair da aba conclui o autosave pendente (ou só guarda o digitado)
     if (abaAtual === 'orcamentos' && nome !== 'orcamentos') concluirSalvarPendente();   // não perde edição pendente
     abaAtual = nome;
     fecharAjuda();
@@ -672,14 +672,15 @@
     r.notas.forEach(function (n) { $(PFX.o + 'notas').appendChild(el('p', { text: n })); });
 
     var impostos = r.icmsInternoDevido + r.pisDevido + r.cofinsDevido + r.ipiDevido;
-    renderGraficoGenerico(PFX.v, r.precoFinal, r.custoTotal, r.lucro, [
+    var g = comFatiaOperacao(opc, [
       { nome: 'Mercadoria (NF de entrada)', sub: 'produtos + IPI, antes dos créditos', valor: r.totalNFCompra },
       { nome: 'Tributos a recolher (líquidos de créditos)', sub: 'ICMS ' + brl(r.icmsInternoDevido) + ' · PIS/COFINS ' + brl(r.pisDevido + r.cofinsDevido) + ' · IPI ' + brl(r.ipiDevido), valor: impostos },
       { nome: 'DIFAL + FCP', sub: r.difalPct + r.fcpPct > 0 ? pct(r.difalPct + r.fcpPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal + r.fcp },
       { nome: 'Frete', sub: '', valor: r.frete },
       { nome: 'Taxa do cartão', sub: r.taxaCartao > 0 ? pct(r.taxaCartao) : 'à vista', valor: r.valorTaxaCartao },
       { nome: 'Lucro operacional', sub: 'antes de IRPJ/CSLL · markup ' + pct(r.markup, 1) + ' sobre o CMV', valor: r.lucro }
-    ]);
+    ], r.custoTotal, r.lucro, 'antes de IRPJ/CSLL · lucro da operação ' + brl(r.lucro) + ' − rateio');
+    renderGraficoGenerico(PFX.v, r.precoFinal, g.custoTotal, g.lucro, g.partes);
   }
 
   var DRE_LINHAS_REVENDA = [
@@ -716,6 +717,13 @@
   /* Liga/desliga do custo de operação numa calculadora: lê a caixa "<prefixo>custoOperacao", calcula taxa × m² com a
    * configuração ATUAL e escreve o detalhe ao lado da caixa. Devolve { aplicar, custo }. O item adicionado a um
    * orçamento NÃO leva esse custo: lá o rateio é decidido pelo próprio orçamento (botão no editor), com a taxa congelada. */
+  var custoOpManual = false;          // o usuário já ligou/desligou alguma caixa nesta sessão: o padrão não mexe mais
+  var padraoCalcDoServidor = false;   // o padrão já foi (re)aplicado com a configuração vinda do servidor
+  function aplicarPadraoCalculadoras() {
+    if (custoOpManual) return;
+    var ligado = !!(config.operacao && config.operacao.padraoCalculadoras === true);
+    ['in-', 'r-', 'n-'].forEach(function (p) { var cb = $(p + 'custoOperacao'); if (cb) cb.checked = ligado; });
+  }
   function custoOperacaoCalc(prefixo, quantidade) {
     var cb = $(prefixo + 'custoOperacao'), info = $(prefixo + 'custoOperacaoInfo');
     if (!cb) return { aplicar: false, custo: 0 };
@@ -841,12 +849,12 @@
     r.notas.forEach(function (n) { $('out-notas').appendChild(el('p', { text: n })); });
 
     renderImportacao(r.importacao);
-    renderGrafico(r);
+    var opc = custoOperacaoCalc('in-', r.quantidade);   // custo de operação (rateio por m²): só no gráfico/DRE gerenciais, nunca nos números da planilha acima
+    renderGrafico(r, opc);
 
     // DRE (estimativa gerencial) calculada a partir do resultado — não mexe na calc 1
     try {
       var d1 = CALC.dreImportacao(config, r);
-      var opc = custoOperacaoCalc('in-', r.quantidade);   // custo de operação (rateio por m²): só na DRE, nunca nos números da planilha acima
       if (opc.aplicar) d1 = CALC.dreComOperacao(config, d1, opc.custo);
       renderHeroDre('out-', d1.real, d1.presumido);
       renderDre(d1.real, d1.presumido, 'out-dre', DRE_LINHAS_IMPORTACAO, 'Tributos totais (DIFAL, ICMS, PIS/COFINS líquidos, IRPJ/CSLL)');
@@ -856,16 +864,27 @@
   /* Gráfico: composição do preço final (barra empilhada 100%) */
   var VIZ_CORES = ['#172329', '#536169', '#7A8990', '#A8874F', '#B0643F', '#8E6FA0'];   // paleta da marca: metal escuro → metal claro, bronze, terracota
   var VIZ_LUCRO = '#1F7A5A';   // lucro sempre em verde, em qualquer gráfico
-  function renderGrafico(r) {
+  /* Fatia do custo de operação nos gráficos das calculadoras (só quando a caixa está ligada): o rateio sai do lucro.
+   * Devolve { partes, custoTotal, lucro } já ajustados para renderGraficoGenerico — os números da planilha não mudam. */
+  function comFatiaOperacao(opc, partes, custoTotal, lucro, subLucro) {
+    if (!opc || !opc.aplicar) return { partes: partes, custoTotal: custoTotal, lucro: lucro };
+    var r = CALC.resumoOperacao(config), ultima = partes[partes.length - 1];
+    var fatia = { nome: 'Custo de operação da fábrica', sub: 'rateio ' + brl(r.taxaM2) + '/m² (só gerencial — não vai para a NF)', valor: opc.custo, chave: 'operacao' };
+    var lucroNovo = lucro - opc.custo;
+    var lucroParte = Object.assign({}, ultima, { nome: ultima.nome + ' após custo de operação', sub: subLucro || ultima.sub, valor: lucroNovo });
+    return { partes: partes.slice(0, -1).concat([fatia, lucroParte]), custoTotal: custoTotal + opc.custo, lucro: lucroNovo };
+  }
+  function renderGrafico(r, opc) {
     var impostos = r.pis + r.cofins + r.icms;
-    renderGraficoGenerico('viz', r.precoFinal, r.custoTotal, r.lucro, [
+    var g = comFatiaOperacao(opc, [
       { nome: 'Custo do vidro', sub: 'importação + despesas, sem imposto', valor: r.custoSemImposto },
       { nome: 'Impostos', sub: 'PIS ' + brl(r.pis) + ' · COFINS ' + brl(r.cofins) + ' · ICMS ' + brl(r.icms), valor: impostos },
       { nome: 'DIFAL + FCP', sub: r.difalPct + r.fcpPct > 0 ? pct(r.difalPct, 1) + ' + ' + pct(r.fcpPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal + r.fcp },
       { nome: 'Frete', sub: '', valor: r.frete },
       { nome: 'Taxa do cartão', sub: r.taxaCartao > 0 ? pct(r.taxaCartao) : 'à vista', valor: r.valorTaxaCartao },
       { nome: 'Lucro', sub: 'markup ' + pct(r.markup, 1), valor: r.lucro }
-    ]);
+    ], r.custoTotal, r.lucro, 'lucro da planilha ' + brl(r.lucro) + ' − rateio');
+    renderGraficoGenerico('viz', r.precoFinal, g.custoTotal, g.lucro, g.partes);
   }
   function renderGraficoGenerico(prefix, total, custoTotal, lucro, partes) {
     var bar = $(prefix + '-bar'), leg = $(prefix + '-legend');
@@ -1086,7 +1105,11 @@
     opts = opts || {};
     var i = el('input', { type: opts.type || 'number', step: opts.step || 'any', value: value });
     if (opts.placeholder) i.placeholder = opts.placeholder;
-    i.addEventListener('change', function () { onChange(i.value); });
+    // O valor digitado vai para o rascunho a cada tecla (input), não só ao sair do campo (change): o autosave de 500 ms
+    // lê o rascunho, então sem isso ele gravava o valor antigo e dizia "Salvo automaticamente" (parecer nº 8, achado 1).
+    // onChange(valor, evento): handlers que recriam a tabela só o fazem no 'change', para não tirar o foco de quem digita.
+    i.addEventListener('input', function () { onChange(i.value, 'input'); });
+    i.addEventListener('change', function () { onChange(i.value, 'change'); });
     return el('td', { class: opts.type === 'text' ? ('txt' + (opts.wide ? ' wide' : '')) : 'num' }, [i]);
   }
 
@@ -1152,7 +1175,7 @@
         var d = draft.difal[uf];
         return el('tr', {}, [
           el('td', { text: uf + (uf === empresaUF ? ' (empresa)' : '') }),
-          inputCell(Math.round(d[0] * 1e6) / 1e4, function (v) { d[0] = pctDe(v); CALC.derivarDifal(draft); renderDifal(); }, { step: '0.5' }),
+          inputCell(Math.round(d[0] * 1e6) / 1e4, function (v, ev) { d[0] = pctDe(v); CALC.derivarDifal(draft); if (ev === 'change') renderDifal(); }, { step: '0.5' }),
           el('td', { class: 'num', text: isFinite(d[1]) ? (Math.round(d[1] * 1e6) / 1e4) + '%' : '—', style: 'text-align:right;color:var(--muted)' })
         ]);
       }))
@@ -1171,21 +1194,38 @@
     lerCamposSimples();
     var erro = validarDraft();
     if (erro) { status(erro, 'err'); return; }
-    config = clone(draft);
-    draft = clone(config);
+    config = clone(draft); configSuja = false;
+    // O rascunho (draft) continua sendo o MESMO objeto: as tabelas já renderizadas (produtos, classes, cartão, FCP,
+    // lançamentos do custo de operação) guardam referências a ele; trocá-lo por uma cópia fazia a próxima edição
+    // cair no objeto antigo e o autosave gravar o rascunho novo sem ela (parecer nº 7, achado 1).
     status(salvarConfig(config) ? 'Configurações salvas.' : 'Salvo só nesta sessão (navegador sem armazenamento).', 'ok');
     NUVEM.configAlterada();
     preencherListas();
     recalcular();
     recalcularOperacoes();
+    if (abaAtual === 'operacao') renderOperacaoResumo();
   }
 
+  /* Edição de configuração em andamento nesta aba: autosave agendado (meio segundo após digitar) ou rascunho que ainda
+   * difere do salvo (ex.: valor inválido que o autosave recusou). Enquanto durar, nuvem.js NÃO aplica a configuração
+   * recebida de outra máquina por cima do que está sendo digitado: a gravação local segue, o servidor responde 409 e a
+   * decisão (sobrescrever × usar a do servidor) é explícita, como nos orçamentos (parecer nº 7, achado 2). */
+  var autoTimer = null;
+  var configSuja = false;   // houve digitação/alteração no rascunho ainda não gravada (válida ou não); limpa ao gravar ou ao trocar o rascunho
+  function configEmEdicao() { return !!draft && (autoTimer !== null || configSuja); }   // vale em QUALQUER aba (parecer nº 8, achado 2)
+  /* Conclui agora um autosave de configuração agendado (ao sair da aba, ao fechar a página): o que foi digitado e é válido
+   * fica salvo e vai para a fila do servidor; se for inválido, o rascunho continua protegido e o status mostra o motivo. */
+  function concluirAutoSalvarPendente() {
+    if (autoTimer === null) return;
+    clearTimeout(autoTimer); autoTimer = null;
+    autoSalvar();
+  }
   function autoSalvar() {
     if (!draft) return;
     lerCamposSimples();
     var erro = validarDraft();
     if (erro) { status('Não salvo — ' + erro, 'err'); return; }
-    config = clone(draft);
+    config = clone(draft); configSuja = false;
     var ok = salvarConfig(config);
     NUVEM.configAlterada();
     preencherListas();
@@ -1211,7 +1251,7 @@
       var candidato;
       try { var j = JSON.parse(fr.result); if (j && j.tipo === 'maisglass-backup') { if (!j.config) throw new Error('o arquivo de cópia de segurança não traz configuração.'); j = j.config; } candidato = normalizarConfig(j); }
       catch (e) { status('Arquivo inválido: ' + e.message, 'err'); return; }
-      draft = candidato;
+      draft = candidato; configSuja = true;
       renderConfig();
       status('Arquivo carregado. Clique em "Salvar agora" para aplicar (ou continue editando).', 'ok');
     };
@@ -2226,6 +2266,7 @@
     });
     [['in-', 'importacao'], ['r-', 'revenda'], ['n-', 'nacional']].forEach(function (par) { var b = $(par[0] + 'addOrc'); if (b) b.addEventListener('click', function () { adicionarItem(par[1]); }); });
     window.addEventListener('pagehide', concluirSalvarPendente);
+    window.addEventListener('pagehide', concluirAutoSalvarPendente);
     window.addEventListener('beforeunload', function (ev) { concluirSalvarPendente(); if (temNaoSalvos() || NUVEM.pendentes() > 0) { ev.preventDefault(); ev.returnValue = ''; } });
     window.addEventListener('storage', function (ev) {
       if (ev.key !== ORC_KEY) return;
@@ -2278,10 +2319,10 @@
 
     $('cfgSalvar').addEventListener('click', salvar);
     // Salvamento automático: qualquer alteração na aba Configurações valida e salva sozinha.
-    var autoTimer = null;
     function agendarAutoSalvar(e) {
       if (e && e.target && e.target.id === 'cfgArquivo') { clearTimeout(autoTimer); autoTimer = null; return; }   // importar JSON cancela autosave pendente; só aplica em "Salvar agora"
-      clearTimeout(autoTimer); autoTimer = setTimeout(autoSalvar, 500);
+      configSuja = true;
+      clearTimeout(autoTimer); autoTimer = setTimeout(function () { autoTimer = null; autoSalvar(); }, 500);
     }
     $('tab-config').addEventListener('input', agendarAutoSalvar);
     $('tab-config').addEventListener('change', agendarAutoSalvar);
@@ -2292,8 +2333,11 @@
     $('opAddItem').addEventListener('click', adicionarItemOperacao);
     document.querySelector('[data-cfg="operacao.producaoMensalM2"]').addEventListener('input', renderOperacaoResumo);
     document.querySelectorAll('#tab-operacao select[data-cfg]').forEach(function (s) { s.addEventListener('change', function () { lerCamposSimples(); renderOperacaoResumo(); }); });
-    // estado inicial do liga/desliga nas três calculadoras (padrão da aba Custo de operação; cada aba pode mudar)
-    ['in-', 'r-', 'n-'].forEach(function (p) { var cb = $(p + 'custoOperacao'); if (cb) cb.checked = !!(config.operacao && config.operacao.padraoCalculadoras === true); });
+    // estado inicial do liga/desliga nas três calculadoras (padrão da aba Custo de operação; cada aba pode mudar).
+    // Num navegador novo a configuração da empresa só chega do servidor depois deste ponto: aplicarConfigRecebida
+    // reaplica o padrão UMA vez, na primeira carga, se o usuário ainda não mexeu nas caixas (parecer nº 7, achado 3).
+    ['in-', 'r-', 'n-'].forEach(function (p) { var cb = $(p + 'custoOperacao'); if (cb) cb.addEventListener('change', function () { custoOpManual = true; }); });
+    aplicarPadraoCalculadoras();
     recalcular(); recalcularOperacoes();
     $('cfgExportar').addEventListener('click', exportar);
     $('cfgImportar').addEventListener('click', function () { $('cfgArquivo').click(); });
@@ -2322,14 +2366,16 @@
     try { c = normalizarConfig(cfg); } catch (e) { console.warn('Configuração recebida inválida', e); return; }
     config = c;
     salvarConfig(config);
-    draft = clone(config);
+    draft = clone(config); configSuja = false; if (autoTimer !== null) { clearTimeout(autoTimer); autoTimer = null; }
     if (ABAS_CONFIG.indexOf(abaAtual) >= 0) renderConfig();
+    if (!padraoCalcDoServidor) { padraoCalcDoServidor = true; aplicarPadraoCalculadoras(); }   // 1ª configuração do servidor (navegador novo): padrão das calculadoras
     preencherListas(); recalcular(); recalcularOperacoes(); atualizarCabecalho();
     status('Configuração atualizada' + (meta && meta.atualizadoPor ? ' por ' + meta.atualizadoPor : '') + (meta && meta.atualizadoEm ? ' em ' + dataHora(meta.atualizadoEm) : '') + ' (servidor).', 'ok');
   }
   function iniciarNuvem() {
     NUVEM.iniciar({
       orcAberto: function () { return orc ? orc.id : null; },
+      configEmEdicao: configEmEdicao,
       confirmar: function (msg) { return confirm(msg); },
       aoStatus: hdrSync,
       aoReceberOrcamentos: function (info) {

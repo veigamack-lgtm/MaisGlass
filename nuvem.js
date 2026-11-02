@@ -16,6 +16,7 @@
   var ESPERAS = [5000, 15000, 60000];
 
   var opts = {};                 // callbacks do app (ver iniciar)
+  var configAguardando = null;   // nome de quem alterou a configuração em outra máquina enquanto esta aba a edita (parecer nº 8)
   var T = { set: function (f, ms) { return root.setTimeout(f, ms); }, clear: function (id) { root.clearTimeout(id); } };   // substituível nos testes
   var usuario = null;
   var enviando = false;
@@ -212,10 +213,10 @@
     var cfg = lerJSON(CFG_KEY, null); if (!cfg) return Promise.resolve('ok');
     var s = lerSync();
     return api('PUT', '/api/config', { dados: cfg, versaoBase: s.configVersao }).then(function (r) {
-      if (r.status === 200) { var s2 = lerSync(); s2.configVersao = r.corpo.versao; gravarSync(s2); return 'ok'; }
+      if (r.status === 200) { var s2 = lerSync(); s2.configVersao = r.corpo.versao; gravarSync(s2); configAguardando = null; return 'ok'; }
       if (r.status === 401) throw erroSessao();
       if (r.status === 409 && r.corpo.atual) {
-        var atual = r.corpo.atual;
+        var atual = r.corpo.atual; configAguardando = null;   // a decisão abaixo resolve o que estava aguardando
         if (canonico(atual.dados) === canonico(cfg)) { var s3 = lerSync(); s3.configVersao = atual.versao; gravarSync(s3); return 'ok'; }
         if (confirmar('As Configurações foram alteradas por ' + (atual.atualizadoPor || 'outra pessoa') + ' às ' + hora(atual.atualizadoEm) + ' em outra máquina.\n\nOK = sobrescrever com as deste computador.\nCancelar = usar as do servidor (as alterações locais são descartadas).')) {
           var s4 = lerSync(); s4.configVersao = atual.versao; gravarSync(s4); return 'repetir';
@@ -299,7 +300,12 @@
     if (mudou) gravarLista(lista);
     if (resp.config) {
       var cfgPendente = s.fila.some(function (f) { return f.tipo === 'config'; });
-      if (!cfgPendente && resp.config.versao !== s.configVersao) { s.configVersao = resp.config.versao; gravarSync(s); gravarJSON(CFG_KEY, resp.config.dados); fn('aoReceberConfig')(resp.config.dados, { versao: resp.config.versao, atualizadoPor: resp.config.atualizadoPor, atualizadoEm: resp.config.atualizadoEm }); s = lerSync(); }
+      // Configuração sendo editada nesta aba (autosave a caminho ou rascunho ainda não salvo): não aplica a remota por cima
+      // do que está sendo digitado. A gravação local vai ao servidor, recebe 409 e enviarConfig() pergunta o que fazer
+      // (parecer nº 7, achado 2). Se a edição for abandonada, o próximo recebimento aplica a remota normalmente.
+      var cfgEmEdicao = !cfgPendente && resp.config.versao !== s.configVersao && !!fn('configEmEdicao')();
+      configAguardando = cfgEmEdicao ? (resp.config.atualizadoPor || 'outra pessoa') : null;   // aparece no status do topo até a edição terminar
+      if (!cfgPendente && !cfgEmEdicao && resp.config.versao !== s.configVersao) { s.configVersao = resp.config.versao; gravarSync(s); gravarJSON(CFG_KEY, resp.config.dados); fn('aoReceberConfig')(resp.config.dados, { versao: resp.config.versao, atualizadoPor: resp.config.atualizadoPor, atualizadoEm: resp.config.atualizadoEm }); s = lerSync(); }
     } else if (completo && usuario && usuario.papel === 'admin' && lerJSON(CFG_KEY, null)) {
       configAlterada(); s = lerSync();                                    // servidor sem configuração: a do administrador vira a da empresa
     }
@@ -370,7 +376,8 @@
     else if (n) partes.push(n + ' pendente(s)');
     else partes.push('Sincronizado' + (s.ultimaSync ? ' às ' + new Date(s.ultimaSync).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''));
     if (nc) partes.push(nc + ' conflito(s) — abra o orçamento para resolver');
-    fn('aoStatus')(partes.join(' · '), falhasRede || nc ? 'err' : (n || enviando ? '' : 'ok'));
+    if (configAguardando) partes.push('configuração alterada por ' + configAguardando + ' em outra máquina aguardando você concluir (ou corrigir) a edição em Configurações / Custo de operação');
+    fn('aoStatus')(partes.join(' · '), falhasRede || nc || configAguardando ? 'err' : (n || enviando ? '' : 'ok'));
   }
 
   /* ---------- ciclo de vida ---------- */
