@@ -832,6 +832,20 @@ await (async function () {
   ok(/Custo de operação/.test(a.texto('out-dre')), 'DRE ganha a linha do custo de operação');
   aprox('lucro líquido real cai 26.720 × 66% = 17.635,20', liqAntes - liqDepois, 17635.20, 0.01);
   igual('"Lucro" da planilha não muda', a.texto('out-lucro'), lucroPlanilha);
+  // gráfico "Para onde vai o preço final": fatia do custo de operação e lucro descontado (só com a caixa ligada)
+  var leg = a.texto('viz-legend');
+  ok(/Custo de operação da fábrica/.test(leg) && /R\$ 26\.720,00/.test(leg) && /Lucro após custo de operação/.test(leg), 'gráfico da importação ganha a fatia e o lucro vira "após custo de operação"');
+  aprox('fatia do lucro no gráfico = lucro da planilha − 26.720', num(a.doc.querySelectorAll('#viz-legend .item .vl')[6].textContent), num(lucroPlanilha) - 26720, 0.01);
+  a.$('in-custoOperacao').checked = false; a.$('in-custoOperacao').dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  ok(!/Custo de operação/.test(a.texto('viz-legend')) && a.doc.querySelectorAll('#viz-legend .item').length === 6, 'desligando, o gráfico volta às 6 fatias originais');
+  a.$('in-custoOperacao').checked = true; a.$('in-custoOperacao').dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  // revenda: mesma fatia no gráfico (600 m² padrão… aqui 1.336 m² → 26.720)
+  a.aba('revenda');
+  ok(!/Custo de operação/.test(a.texto('rviz-legend')), 'revenda começa sem a fatia');
+  a.$('r-custoOperacao').checked = true; a.$('r-custoOperacao').dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  var legR = a.texto('rviz-legend');
+  ok(/Custo de operação da fábrica/.test(legR) && /Lucro operacional após custo de operação/.test(legR) && /Custo de operação/.test(a.texto('ro-dre')), 'revenda ligada: fatia no gráfico e linha na DRE');
+  a.aba('calc');
   // 3. orçamento novo: nasce ligado, com a taxa congelada; item adicionado não carrega o custo
   a.novoOrc('Com overhead', 'RJ'); a.aba('calc'); a.click('in-addOrc'); a.aba('orcamentos');
   var o = a.orcAberto();
@@ -864,6 +878,157 @@ await (async function () {
   a.set('o-status', 'enviado', 'change');
   ok(a.$('o-custoOperacao').disabled, 'proposta emitida: liga/desliga do custo de operação fica travado');
   igual('sem erros de página', a.errosPagina, []);
+  await amb.fechar();
+})();
+
+console.log('\n--- Parecer 7 (Codex) — custo de operação: Salvar agora, sincronização durante a edição, padrão das calculadoras');
+/* helpers das três reproduções */
+function lancarCusto(a, valor) {
+  a.click('opAddItem');
+  var trs = a.doc.querySelectorAll('#op-itens tbody tr:not(.tot)'), tr = trs[trs.length - 1], ins = tr.querySelectorAll('input');
+  ins[0].value = 'Fixo'; ins[0].dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  ins[1].value = String(valor); ins[1].dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  return ins[1];
+}
+function producao(a, m2) { var p = a.doc.querySelector('[data-cfg="operacao.producaoMensalM2"]'); p.value = String(m2); p.dispatchEvent(new a.w.Event('input', { bubbles: true })); p.dispatchEvent(new a.w.Event('change', { bubbles: true })); }
+function cfgLocal(a) { return JSON.parse(a.w.localStorage.getItem('glassmais.config.v1')); }
+async function cfgServidor(a) { var r = await a.w.fetch('/api/config', { headers: { 'X-Requested-With': 'MaisGlass' } }); return (await r.json()).dados; }
+
+await (async function () {   // achado 1 (P1): "Salvar agora" e depois editar — a edição era ignorada
+  var amb = await ambiente();
+  var a = await novaAba(amb);
+  a.aba('operacao'); var valorInp = lancarCusto(a, 70000); producao(a, 3500); a.disparar(500);
+  a.click('opSalvar');
+  ok(/Configurações salvas/.test(a.texto('opStatus')), '"Salvar agora" salva: ' + a.texto('opStatus'));
+  valorInp.value = '105000'; valorInp.dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  igual('taxa na tela já reflete 105.000 ÷ 3.500', a.texto('op-taxa'), 'R$ 30,00 /m²');
+  a.disparar(500);
+  igual('autosave depois de "Salvar agora" grava a edição (era 70.000)', [cfgLocal(a).operacao.itens[0].valorMensal, /Salvo automaticamente/.test(a.texto('opStatus'))], [105000, true]);
+  await a.sync();
+  igual('servidor recebeu 105.000', (await cfgServidor(a)).operacao.itens[0].valorMensal, 105000);
+  // mesma causa valia para as tabelas de Configurações (produtos etc.) desde antes desta rodada
+  a.aba('config'); a.click('cfgSalvar');
+  var prodInp = a.doc.querySelector('#cfg-produtos tbody tr input[type=number]');
+  prodInp.value = '9.99'; prodInp.dispatchEvent(new a.w.Event('change', { bubbles: true })); a.disparar(500);
+  igual('Configurações → Produtos: edição após "Salvar agora" também é gravada', cfgLocal(a).produtos[0].custo, 9.99);
+  // remover um lançamento depois de "Salvar agora"
+  a.aba('operacao'); a.click('opSalvar');
+  a.doc.querySelector('#op-itens tbody tr button.danger').click(); a.disparar(500);
+  igual('remover lançamento após "Salvar agora" é gravado', cfgLocal(a).operacao.itens.length, 0);
+  igual('sem erros de página', a.errosPagina, []);
+  await amb.fechar();
+})();
+
+await (async function () {   // achado 2 (P2): configuração remota chegando durante uma edição não salva
+  var amb = await ambiente();
+  var a = await novaAba(amb), b = await novaAba(amb);
+  a.aba('operacao'); var vA = lancarCusto(a, 70000); producao(a, 3500); a.disparar(500); await a.sync();
+  await b.puxar(); b.aba('operacao');
+  igual('B recebeu 70.000', cfgLocal(b).operacao.itens[0].valorMensal, 70000);
+  // B começa a editar (autosave de 500 ms ainda não disparou)
+  var vB = b.doc.querySelector('#op-itens tbody tr input[type=number]'); vB.value = '140000'; vB.dispatchEvent(new b.w.Event('change', { bubbles: true }));
+  igual('B tem autosave pendente', b.pendentes(500).length, 1);
+  // A grava outra coisa e sincroniza; B recebe ANTES do autosave
+  producao(a, 5000); a.disparar(500); await a.sync();
+  await b.puxar();
+  igual('recebimento NÃO sobrescreve a edição de B em andamento (tela, taxa e rascunho)', [b.doc.querySelector('#op-itens tbody tr input[type=number]').value, b.texto('op-taxa'), b.doc.querySelector('[data-cfg="operacao.producaoMensalM2"]').value], ['140000', 'R$ 40,00 /m²', '3500']);
+  // autosave de B dispara → envia com a versão antiga → 409 → pergunta; OK = sobrescrever
+  b.confirms.length = 0; b.respostas.push(true);
+  b.disparar(500); await b.sync();
+  ok(b.confirms.length === 1 && /Configurações foram alteradas por/.test(b.confirms[0]), 'conflito vira decisão explícita (409 → pergunta): ' + (b.confirms[0] || '').slice(0, 70));
+  var srv = await cfgServidor(b);
+  igual('B sobrescreveu: servidor com 140.000 (e a produção de B, 3.500)', [srv.operacao.itens[0].valorMensal, srv.operacao.producaoMensalM2], [140000, 3500]);
+  // A não está editando: recebe normalmente
+  await a.puxar();
+  igual('A (sem edição em andamento) recebe a configuração de B', [cfgLocal(a).operacao.itens[0].valorMensal, a.doc.querySelector('#op-itens tbody tr input[type=number]').value], [140000, '140000']);
+  // variante: B edita, recebe, e CANCELA no conflito → fica com a do servidor
+  vB = b.doc.querySelector('#op-itens tbody tr input[type=number]'); vB.value = '1'; vB.dispatchEvent(new b.w.Event('change', { bubbles: true }));
+  producao(a, 7000); a.disparar(500); await a.sync(); await b.puxar();
+  igual('(variante) edição de B preservada até a decisão', b.doc.querySelector('#op-itens tbody tr input[type=number]').value, '1');
+  b.confirms.length = 0; b.respostas.push(false); b.disparar(500); await b.sync();
+  igual('(variante) Cancelar = usa a do servidor: 140.000 e produção 7.000', [cfgLocal(b).operacao.itens[0].valorMensal, cfgLocal(b).operacao.producaoMensalM2, b.doc.querySelector('[data-cfg="operacao.producaoMensalM2"]').value], [140000, 7000, '7000']);
+  igual('sem erros de página', a.errosPagina.concat(b.errosPagina), []);
+  await amb.fechar();
+})();
+
+await (async function () {   // achado 3 (P2): padrão "calculadoras já incorporam" num navegador novo
+  var amb = await ambiente();
+  var a = await novaAba(amb);
+  a.aba('operacao'); lancarCusto(a, 70000); producao(a, 3500);
+  var sel = a.doc.querySelector('select[data-cfg="operacao.padraoCalculadoras"]'); sel.value = '1'; sel.dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  a.disparar(500); await a.sync();
+  igual('servidor com padraoCalculadoras = true', (await cfgServidor(a)).operacao.padraoCalculadoras, true);
+  var c = await novaAba(amb);   // navegador novo: sem configuração local; a da empresa chega do servidor na carga inicial
+  igual('navegador novo: as três calculadoras abrem com o custo incorporado', ['in-', 'r-', 'n-'].map(function (p) { return c.$(p + 'custoOperacao').checked; }), [true, true, true]);
+  c.aba('calc');
+  ok(/Custo de operação/.test(c.texto('out-dre')) && /26\.720,00/.test(c.texto('in-custoOperacaoInfo')), 'e a DRE da importação já desconta o rateio');
+  // escolha manual é preservada nas sincronizações seguintes
+  c.$('in-custoOperacao').checked = false; c.$('in-custoOperacao').dispatchEvent(new c.w.Event('change', { bubbles: true }));
+  var dol = a.doc.querySelector('[data-cfg="dolar"]'); a.aba('config'); dol.value = '5.9'; dol.dispatchEvent(new a.w.Event('input', { bubbles: true })); a.disparar(500); await a.sync();
+  await c.puxar();
+  igual('sincronização posterior não redefine as caixas (manual desligada continua; as outras ficam)', ['in-', 'r-', 'n-'].map(function (p) { return c.$(p + 'custoOperacao').checked; }), [false, true, true]);
+  // segunda visita (configuração já em cache): padrão aplicado na inicialização
+  var d = await novaAba(amb, { config: cfgLocal(c) });
+  igual('navegador com cache: padrão aplicado na abertura', d.$('r-custoOperacao').checked, true);
+  igual('sem erros de página', a.errosPagina.concat(c.errosPagina, d.errosPagina), []);
+  await amb.fechar();
+})();
+
+console.log('\n--- Parecer 8 (Codex) — digitar sem sair do campo; trocar de aba antes do autosave');
+function digitar(aba, seletor, v) { var e = aba.doc.querySelector(seletor); e.value = String(v); e.dispatchEvent(new aba.w.Event('input', { bubbles: true })); }   // só input: o usuário ainda está no campo
+var SEL_VALOR = '#op-itens tbody tr input[type=number]', SEL_PROD = '[data-cfg="operacao.producaoMensalM2"]';
+
+await (async function () {   // achado 1: input sem change → autosave grava o digitado; remoto não apaga
+  var amb = await ambiente();
+  var a = await novaAba(amb), b = await novaAba(amb);
+  a.aba('operacao'); lancarCusto(a, 70000); producao(a, 3500); a.disparar(500); await a.sync();
+  await b.puxar(); b.aba('operacao');
+  digitar(b, SEL_VALOR, 140000);                       // ainda dentro do campo (sem blur/change)
+  igual('rascunho já recebe o valor digitado (edição em andamento)', b.w.GM_NUVEM.pendentes(), 0);
+  b.disparar(500);
+  igual('autosave grava o que está sendo digitado (era o valor antigo + "Salvo automaticamente")', [cfgLocal(b).operacao.itens[0].valorMensal, /Salvo automaticamente/.test(b.texto('opStatus')), b.texto('op-taxa')], [140000, true, 'R$ 40,00 /m²']);
+  await b.sync();
+  igual('servidor com 140.000', (await cfgServidor(b)).operacao.itens[0].valorMensal, 140000);
+  // A atualiza (depois de receber a de B) e grava; B recebe com o campo ainda focado: nada é perdido
+  await a.puxar(); producao(a, 5000); a.disparar(500); await a.sync(); await b.puxar();
+  igual('B recebe a produção de A e mantém 140.000 (tela e armazenamento)', [b.doc.querySelector(SEL_VALOR).value, cfgLocal(b).operacao.itens[0].valorMensal, cfgLocal(b).operacao.producaoMensalM2, b.confirms.length], ['140000', 140000, 5000, 0]);
+  // pausa no meio da digitação com valor inválido: nada é gravado, o status diz o motivo, a edição fica protegida
+  digitar(b, SEL_VALOR, ''); b.disparar(500);
+  ok(/Não salvo/.test(b.texto('opStatus')) && cfgLocal(b).operacao.itens[0].valorMensal === 140000, 'valor vazio no meio da digitação: "Não salvo — …" e o armazenamento não muda: ' + b.texto('opStatus').slice(0, 60));
+  producao(a, 6000); a.disparar(500); await a.sync(); await b.puxar();
+  ok(b.doc.querySelector(SEL_VALOR).value === '' && /aguardando você concluir/.test(b.texto('hdrSync')), 'remoto não entra por cima do campo inválido; status do topo avisa: ' + b.texto('hdrSync').slice(0, 80));
+  digitar(b, SEL_VALOR, 150000); b.respostas.push(true); b.disparar(500); await b.sync();
+  igual('ao concluir (150.000) → 409 → OK sobrescreve; status do topo volta ao normal', [(await cfgServidor(b)).operacao.itens[0].valorMensal, b.confirms.length, /aguardando/.test(b.texto('hdrSync'))], [150000, 1, false]);
+  igual('sem erros de página', a.errosPagina.concat(b.errosPagina), []);
+  await amb.fechar();
+})();
+
+await (async function () {   // achado 2: change → trocar de aba antes do autosave
+  var amb = await ambiente();
+  var a = await novaAba(amb), b = await novaAba(amb);
+  a.aba('operacao'); lancarCusto(a, 70000); producao(a, 3500); a.disparar(500); await a.sync();
+  await b.puxar(); b.aba('operacao');
+  var vB = b.doc.querySelector(SEL_VALOR); vB.value = '210000'; vB.dispatchEvent(new b.w.Event('change', { bubbles: true }));
+  b.aba('calc');                                        // sai da aba com o autosave de 500 ms ainda pendente
+  igual('sair da aba conclui o autosave: gravado e na fila do servidor', [b.pendentes(500).length, cfgLocal(b).operacao.itens[0].valorMensal, b.w.GM_NUVEM.pendentes()], [0, 210000, 1]);
+  await b.sync();
+  await a.puxar(); producao(a, 7000); a.disparar(500); await a.sync(); await b.puxar();
+  b.aba('operacao');
+  igual('B volta à aba com 210.000 e a produção 7.000 de A (nada perdido, sem pergunta)', [b.doc.querySelector(SEL_VALOR).value, b.doc.querySelector(SEL_PROD).value, cfgLocal(b).operacao.itens[0].valorMensal, b.confirms.length], ['210000', '7000', 210000, 0]);
+  // variante: rascunho INVÁLIDO ao sair da aba → continua protegido fora da aba; remoto espera; ao voltar e corrigir, decide
+  digitar(b, SEL_PROD, ''); b.aba('calc');
+  ok(/Não salvo/.test(b.texto('opStatus')) && cfgLocal(b).operacao.producaoMensalM2 === 7000, 'rascunho inválido ao sair: não grava, status explica');
+  producao(a, 8000); a.disparar(500); await a.sync(); await b.puxar();
+  ok(/aguardando você concluir/.test(b.texto('hdrSync')) && cfgLocal(b).operacao.producaoMensalM2 === 7000, 'fora da aba, o remoto não entra por cima do rascunho inválido; topo avisa');
+  b.aba('operacao');
+  igual('ao voltar, o campo inválido continua como o usuário deixou', b.doc.querySelector(SEL_PROD).value, '');
+  producao(b, 9000); b.respostas.push(false); b.disparar(500); await b.sync();
+  igual('corrigiu → 409 → Cancelar = usa a do servidor (8.000)', [cfgLocal(b).operacao.producaoMensalM2, b.doc.querySelector(SEL_PROD).value, b.confirms.length, /aguardando/.test(b.texto('hdrSync'))], [8000, '8000', 1, false]);
+  // fechar a página com autosave pendente também conclui
+  var vB2 = b.doc.querySelector(SEL_VALOR); vB2.value = '220000'; vB2.dispatchEvent(new b.w.Event('change', { bubbles: true }));
+  b.w.dispatchEvent(new b.w.Event('pagehide'));
+  igual('pagehide com autosave pendente grava', cfgLocal(b).operacao.itens[0].valorMensal, 220000);
+  igual('sem erros de página', a.errosPagina.concat(b.errosPagina), []);
   await amb.fechar();
 })();
 
