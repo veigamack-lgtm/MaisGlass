@@ -141,6 +141,20 @@
       observacoes: 'Proposta sujeita a confirmação de estoque. Não inclui serviços não listados.'
     },
 
+    /* --- Custo de operação (aba "Custo de operação", out/2026) ---
+     * Custos fixos mensais da fábrica (aluguel do galpão, pessoal, energia, manutenção, administrativo…) rateados
+     * por m²:  R$/m² = soma dos lançamentos mensais ÷ produção média mensal (m²).  É a produção média de UM MÊS
+     * de operação que divide — nunca os m² do orçamento em questão (esses só multiplicam a taxa depois).
+     * Entra SÓ na DRE (reduz o lucro operacional): não vai para a NF, não entra em base de imposto e não mexe no
+     * preço digitado nem nas fórmulas da planilha. Lista vazia ou produção 0 = taxa 0 (com aviso quando ligado).
+     * calc.js → resumoOperacao / custoOperacaoDe / dreComOperacao; orcamento.js → consolidar (orcamento.custoOperacao). */
+    operacao: {
+      producaoMensalM2: 0,          // produção média mensal da fábrica em m² — base do rateio (0 = ainda não informada)
+      itens: [],                    // { id, categoria (CATEGORIAS_OPERACAO em calc.js), descricao, valorMensal (R$/mês) }
+      padraoOrcamentos: true,       // orçamento novo já nasce com o custo de operação aplicado na DRE
+      padraoCalculadoras: false     // as três calculadoras começam com "incorporar custo de operação" desligado (espelham a planilha)
+    },
+
     /* --- DIFAL por UF (aba DIFAL da planilha, mantida como está): [alíquota interna, DIFAL %].
      * DIFAL = interna − 4% (interestadual de importado); MG = 0 (venda interna).
      * Única correção: MG interna 18% (a planilha trazia 11%; a calc 1 não usa esse número, a calc 2 usa na venda interna).

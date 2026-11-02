@@ -179,14 +179,21 @@
     $('cfgSomenteLeitura').classList.toggle('hidden', admin);
     ['cfgSalvar', 'cfgImportar', 'cfgRestaurar', 'cfgAddProduto'].forEach(function (id) { var b = $(id); if (b) b.classList.toggle('hidden', !admin); });
     if (!admin) cfg.querySelectorAll('input, select, textarea, button.btn.danger, button.btn.small').forEach(function (i) { if (i.id !== 'cfgExportar' && !i.classList.contains('help')) i.disabled = true; });
+    // aba Custo de operação: mesma regra (faz parte da configuração da empresa)
+    var op = $('tab-operacao');
+    op.classList.toggle('somente-leitura', !admin);
+    $('opSomenteLeitura').classList.toggle('hidden', admin);
+    ['opSalvar', 'opAddItem'].forEach(function (id) { $(id).classList.toggle('hidden', !admin); });
+    if (!admin) op.querySelectorAll('input, select, button.btn.small').forEach(function (i) { i.disabled = true; });
   }
 
   /* ---------------- abas ---------------- */
-  var ABAS = ['home', 'calc', 'revenda', 'nacional', 'orcamentos', 'config', 'usuarios'];
+  var ABAS = ['home', 'calc', 'revenda', 'nacional', 'orcamentos', 'operacao', 'config', 'usuarios'];
+  var ABAS_CONFIG = ['config', 'operacao'];   // as duas editam o mesmo rascunho (draft) da configuração da empresa
   var abaAtual = 'home';
   function mostrarAba(nome) {
     if (ABAS.indexOf(nome) < 0 || (nome === 'usuarios' && !ehAdmin())) nome = 'home';
-    if (abaAtual === 'config' && nome !== 'config' && draft) lerCamposSimples(); // guarda o que foi digitado
+    if (ABAS_CONFIG.indexOf(abaAtual) >= 0 && nome !== abaAtual && draft) { if (autoTimer !== null) concluirAutoSalvarPendente(); else lerCamposSimples(); } // sair da aba conclui o autosave pendente (ou só guarda o digitado)
     if (abaAtual === 'orcamentos' && nome !== 'orcamentos') concluirSalvarPendente();   // não perde edição pendente
     abaAtual = nome;
     fecharAjuda();
@@ -194,7 +201,7 @@
     ABAS.forEach(function (a) { $('tab-' + a).classList.toggle('hidden', a !== nome); });
     try { sessionStorage.setItem('glassmais.aba', nome); } catch (e) { /* ignore */ }
     if (OPS[nome]) recalcularRevenda(OPS[nome]);
-    if (nome === 'config') { if (!draft) draft = clone(config); renderConfig(); }
+    if (ABAS_CONFIG.indexOf(nome) >= 0) { if (!draft) draft = clone(config); renderConfig(); }
     if (nome === 'orcamentos') { if (orc) { renderCabecalhoOrc(); renderOrc(); } else renderListaOrc(); }
     if (nome === 'usuarios') renderUsuarios();
     if (ORIGEM_TAB && (nome === 'calc' || OPS[nome])) atualizarBotoesAdd();
@@ -629,7 +636,9 @@
     $(PFX.o + 'fcp').textContent = brl(r.fcp);
     $(PFX.o + 'icmsTotal').textContent = brl(r.icmsTotal);
     $(PFX.o + 'creditoIPI').textContent = brl(r.creditoIPI);
-    var dR = r.dre.real, dP = r.dre.presumido;
+    var dre = r.dre, opc = custoOperacaoCalc(PFX.i, inp.quantidade);
+    if (opc.aplicar) { try { dre = CALC.dreComOperacao(config, r.dre, opc.custo); } catch (e) { dre = r.dre; } }
+    var dR = dre.real, dP = dre.presumido;
     renderHeroDre(PFX.o, dR, dP);
     renderDre(dR, dP, PFX.o + 'dre', DRE_LINHAS_REVENDA);
 
@@ -663,14 +672,15 @@
     r.notas.forEach(function (n) { $(PFX.o + 'notas').appendChild(el('p', { text: n })); });
 
     var impostos = r.icmsInternoDevido + r.pisDevido + r.cofinsDevido + r.ipiDevido;
-    renderGraficoGenerico(PFX.v, r.precoFinal, r.custoTotal, r.lucro, [
+    var g = comFatiaOperacao(opc, [
       { nome: 'Mercadoria (NF de entrada)', sub: 'produtos + IPI, antes dos créditos', valor: r.totalNFCompra },
       { nome: 'Tributos a recolher (líquidos de créditos)', sub: 'ICMS ' + brl(r.icmsInternoDevido) + ' · PIS/COFINS ' + brl(r.pisDevido + r.cofinsDevido) + ' · IPI ' + brl(r.ipiDevido), valor: impostos },
       { nome: 'DIFAL + FCP', sub: r.difalPct + r.fcpPct > 0 ? pct(r.difalPct + r.fcpPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal + r.fcp },
       { nome: 'Frete', sub: '', valor: r.frete },
       { nome: 'Taxa do cartão', sub: r.taxaCartao > 0 ? pct(r.taxaCartao) : 'à vista', valor: r.valorTaxaCartao },
       { nome: 'Lucro operacional', sub: 'antes de IRPJ/CSLL · markup ' + pct(r.markup, 1) + ' sobre o CMV', valor: r.lucro }
-    ]);
+    ], r.custoTotal, r.lucro, 'antes de IRPJ/CSLL · lucro da operação ' + brl(r.lucro) + ' − rateio');
+    renderGraficoGenerico(PFX.v, r.precoFinal, g.custoTotal, g.lucro, g.partes);
   }
 
   var DRE_LINHAS_REVENDA = [
@@ -684,6 +694,7 @@
     ['= Lucro bruto', 'lucroBruto', 'total'],
     ['(−) Frete', 'frete', 'sub'],
     ['(−) Taxa do cartão', 'cartao', 'sub'],
+    ['(−) Custo de operação da fábrica (rateio por m²)', 'custoOperacao', 'sub', 'op'],
     ['= Lucro operacional (antes de IRPJ/CSLL)', 'lucroOperacional', 'total'],
     ['(−) IRPJ + CSLL (estimativa: 34% marginal | presumido 25%+9% sobre 8%/12%)', 'irpjCsll'],
     ['= Lucro líquido da operação', 'lucroLiquido', 'final']
@@ -698,10 +709,32 @@
     ['= Lucro bruto', 'lucroBruto', 'total'],
     ['(−) Frete', 'frete', 'sub'],
     ['(−) Taxa do cartão', 'cartao', 'sub'],
-    ['= Lucro operacional (= "Lucro" da planilha)', 'lucroOperacional', 'total'],
+    ['(−) Custo de operação da fábrica (rateio por m²)', 'custoOperacao', 'sub', 'op'],
+    ['= Lucro operacional (= "Lucro" da planilha, menos o custo de operação quando ligado)', 'lucroOperacional', 'total'],
     ['(−) IRPJ + CSLL (estimativa: 34% marginal | presumido 25%+9% sobre 8%/12%)', 'irpjCsll'],
     ['= Lucro líquido da operação', 'lucroLiquido', 'final']
   ];
+  /* Liga/desliga do custo de operação numa calculadora: lê a caixa "<prefixo>custoOperacao", calcula taxa × m² com a
+   * configuração ATUAL e escreve o detalhe ao lado da caixa. Devolve { aplicar, custo }. O item adicionado a um
+   * orçamento NÃO leva esse custo: lá o rateio é decidido pelo próprio orçamento (botão no editor), com a taxa congelada. */
+  var custoOpManual = false;          // o usuário já ligou/desligou alguma caixa nesta sessão: o padrão não mexe mais
+  var padraoCalcDoServidor = false;   // o padrão já foi (re)aplicado com a configuração vinda do servidor
+  function aplicarPadraoCalculadoras() {
+    if (custoOpManual) return;
+    var ligado = !!(config.operacao && config.operacao.padraoCalculadoras === true);
+    ['in-', 'r-', 'n-'].forEach(function (p) { var cb = $(p + 'custoOperacao'); if (cb) cb.checked = ligado; });
+  }
+  function custoOperacaoCalc(prefixo, quantidade) {
+    var cb = $(prefixo + 'custoOperacao'), info = $(prefixo + 'custoOperacaoInfo');
+    if (!cb) return { aplicar: false, custo: 0 };
+    var r = CALC.resumoOperacao(config), q = Number(quantidade), custo = cb.checked ? CALC.custoOperacaoDe(config, q) : 0;
+    if (info) {
+      if (!cb.checked) { info.textContent = r.taxaM2 > 0 ? 'Desligado — a taxa atual é ' + brl(r.taxaM2) + '/m² (aba Custo de operação).' : 'Desligado — cadastre os custos mensais e a produção média na aba Custo de operação.'; info.className = 'hint'; }
+      else if (r.taxaM2 > 0) { info.textContent = brl(r.taxaM2) + '/m² × ' + numFmt(isFinite(q) ? q : 0, 2) + ' m² = ' + brl(custo) + ' (custos fixos ' + brl(r.totalMensal) + '/mês ÷ ' + numFmt(r.producaoMensalM2, 0) + ' m²/mês) — só na DRE abaixo.'; info.className = 'hint'; }
+      else { info.textContent = 'Ligado, mas ' + r.avisos.join(' ') ; info.className = 'warn'; }
+    }
+    return { aplicar: cb.checked && custo > 0, custo: custo };
+  }
   function renderDre(a, b, tableId, linhas, rotuloTributos) {
     function row(label, k, cls) {
       var va = a[k], vb = b[k];
@@ -712,7 +745,10 @@
     var t = $(tableId || PFX.o + 'dre'); t.innerHTML = '';
     t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: 'DRE da operação (estimativa gerencial)' }), el('th', { text: 'Lucro real (atual)' }), el('th', { text: 'Lucro presumido (simulação)' })])]));
     var tb = el('tbody');
-    (linhas || DRE_LINHAS_REVENDA).forEach(function (l) { tb.appendChild(row(l[0], l[1], l[2])); });
+    (linhas || DRE_LINHAS_REVENDA).forEach(function (l) {
+      if (l[3] === 'op' && !a.custoOperacaoAplicado) return;   // linha do custo de operação só aparece quando está ligado
+      tb.appendChild(row(l[0], l[1], l[2]));
+    });
     tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: 'Margem líquida (sobre a receita líquida)' }), el('td', { text: pctNa(a.margemLiquida) }), el('td', { text: pctNa(b.margemLiquida) })]));
     tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: 'Lucro líquido sobre o valor pago pelo cliente' }), el('td', { text: pctNa(a.margemSobreValorPago) }), el('td', { text: pctNa(b.margemSobreValorPago) })]));
     tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: rotuloTributos || 'Tributos totais líquidos (ICMS, IPI, PIS/COFINS, DIFAL/FCP, IRPJ/CSLL)' }), el('td', { text: brl(a.tributosTotais) }), el('td', { text: brl(b.tributosTotais) })]));
@@ -813,11 +849,13 @@
     r.notas.forEach(function (n) { $('out-notas').appendChild(el('p', { text: n })); });
 
     renderImportacao(r.importacao);
-    renderGrafico(r);
+    var opc = custoOperacaoCalc('in-', r.quantidade);   // custo de operação (rateio por m²): só no gráfico/DRE gerenciais, nunca nos números da planilha acima
+    renderGrafico(r, opc);
 
     // DRE (estimativa gerencial) calculada a partir do resultado — não mexe na calc 1
     try {
       var d1 = CALC.dreImportacao(config, r);
+      if (opc.aplicar) d1 = CALC.dreComOperacao(config, d1, opc.custo);
       renderHeroDre('out-', d1.real, d1.presumido);
       renderDre(d1.real, d1.presumido, 'out-dre', DRE_LINHAS_IMPORTACAO, 'Tributos totais (DIFAL, ICMS, PIS/COFINS líquidos, IRPJ/CSLL)');
     } catch (e) { $('out-dre').innerHTML = ''; ['out-liqReal', 'out-liqPres'].forEach(function (id) { $(id).textContent = '—'; }); }
@@ -826,16 +864,27 @@
   /* Gráfico: composição do preço final (barra empilhada 100%) */
   var VIZ_CORES = ['#172329', '#536169', '#7A8990', '#A8874F', '#B0643F', '#8E6FA0'];   // paleta da marca: metal escuro → metal claro, bronze, terracota
   var VIZ_LUCRO = '#1F7A5A';   // lucro sempre em verde, em qualquer gráfico
-  function renderGrafico(r) {
+  /* Fatia do custo de operação nos gráficos das calculadoras (só quando a caixa está ligada): o rateio sai do lucro.
+   * Devolve { partes, custoTotal, lucro } já ajustados para renderGraficoGenerico — os números da planilha não mudam. */
+  function comFatiaOperacao(opc, partes, custoTotal, lucro, subLucro) {
+    if (!opc || !opc.aplicar) return { partes: partes, custoTotal: custoTotal, lucro: lucro };
+    var r = CALC.resumoOperacao(config), ultima = partes[partes.length - 1];
+    var fatia = { nome: 'Custo de operação da fábrica', sub: 'rateio ' + brl(r.taxaM2) + '/m² (só gerencial — não vai para a NF)', valor: opc.custo, chave: 'operacao' };
+    var lucroNovo = lucro - opc.custo;
+    var lucroParte = Object.assign({}, ultima, { nome: ultima.nome + ' após custo de operação', sub: subLucro || ultima.sub, valor: lucroNovo });
+    return { partes: partes.slice(0, -1).concat([fatia, lucroParte]), custoTotal: custoTotal + opc.custo, lucro: lucroNovo };
+  }
+  function renderGrafico(r, opc) {
     var impostos = r.pis + r.cofins + r.icms;
-    renderGraficoGenerico('viz', r.precoFinal, r.custoTotal, r.lucro, [
+    var g = comFatiaOperacao(opc, [
       { nome: 'Custo do vidro', sub: 'importação + despesas, sem imposto', valor: r.custoSemImposto },
       { nome: 'Impostos', sub: 'PIS ' + brl(r.pis) + ' · COFINS ' + brl(r.cofins) + ' · ICMS ' + brl(r.icms), valor: impostos },
       { nome: 'DIFAL + FCP', sub: r.difalPct + r.fcpPct > 0 ? pct(r.difalPct, 1) + ' + ' + pct(r.fcpPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal + r.fcp },
       { nome: 'Frete', sub: '', valor: r.frete },
       { nome: 'Taxa do cartão', sub: r.taxaCartao > 0 ? pct(r.taxaCartao) : 'à vista', valor: r.valorTaxaCartao },
       { nome: 'Lucro', sub: 'markup ' + pct(r.markup, 1), valor: r.lucro }
-    ]);
+    ], r.custoTotal, r.lucro, 'lucro da planilha ' + brl(r.lucro) + ' − rateio');
+    renderGraficoGenerico('viz', r.precoFinal, g.custoTotal, g.lucro, g.partes);
   }
   function renderGraficoGenerico(prefix, total, custoTotal, lucro, partes) {
     var bar = $(prefix + '-bar'), leg = $(prefix + '-legend');
@@ -930,7 +979,71 @@
     renderDifal();
     renderFcp();
     renderTermosConfig();
+    renderOperacao();
     if (usuarioAtual && !ehAdmin()) aplicarPermissoes();   // tabelas recriadas acima também ficam só leitura
+  }
+  /* ---------- aba Custo de operação (edita draft.operacao; salva junto com Configurações) ---------- */
+  function renderOperacao() {
+    if (!draft) return;
+    if (!isObj(draft.operacao)) draft.operacao = clone(DEF.config.operacao);
+    if (!Array.isArray(draft.operacao.itens)) draft.operacao.itens = [];
+    var op = draft.operacao, cats = CALC.CATEGORIAS_OPERACAO;
+    var wrap = $('op-itens'); wrap.innerHTML = '';
+    if (!op.itens.length) wrap.appendChild(el('p', { class: 'hint', text: 'Nenhum custo mensal lançado. Clique em "+ Adicionar custo mensal" (ex.: Aluguel do galpão — R$ 15.000/mês).' }));
+    else {
+      var resumo = CALC.resumoOperacao(draft);
+      var linhas = op.itens.map(function (it, idx) {
+        var sel = el('select', {}, Object.keys(cats).map(function (k) { return el('option', { value: k, text: cats[k] }); }));
+        sel.value = cats[it.categoria] ? it.categoria : 'outros';
+        sel.addEventListener('change', function () { it.categoria = sel.value; });
+        var rm = el('button', { class: 'btn small danger', text: 'Remover', onclick: function () { op.itens.splice(idx, 1); renderOperacao(); $('tab-operacao').dispatchEvent(new Event('change', { bubbles: true })); } });
+        return el('tr', {}, [
+          el('td', {}, [sel]),
+          inputCell(it.descricao || '', function (val) { it.descricao = val.trim(); }, { type: 'text' }),
+          inputCell(it.valorMensal === null || it.valorMensal === undefined ? '' : it.valorMensal, function (val) { it.valorMensal = val === '' ? NaN : Number(val); renderOperacaoResumo(); }, { step: '0.01' }),
+          el('td', { class: 'num', 'data-op-idx': String(idx), text: '—' }),   // R$/m² da linha: preenchido por renderOperacaoResumo
+          el('td', {}, [rm])
+        ]);
+      });
+      linhas.push(el('tr', { class: 'tot' }, [el('td', { text: 'Total mensal', colspan: '2', style: 'font-weight:700' }), el('td', { class: 'num', id: 'op-totalLinha', text: brl(resumo.totalMensal), style: 'font-weight:700' }), el('td', { class: 'num', id: 'op-taxaLinha', text: '—', style: 'font-weight:700' }), el('td', { text: '' })]));
+      wrap.appendChild(el('table', { class: 'operacao' }, [
+        el('thead', {}, [el('tr', {}, [['Categoria', ''], ['Descrição', ''], ['R$ por mês', 'num'], ['R$/m²', 'num'], ['', '']].map(function (h) { return el('th', { text: h[0], class: h[1] }); }))]),
+        el('tbody', {}, linhas)
+      ]));
+    }
+    renderOperacaoResumo();
+  }
+  /* Lado direito da aba: taxa R$/m², composição e avisos — lê o que está digitado (sem esperar o autosave) */
+  function renderOperacaoResumo() {
+    if (!draft || !isObj(draft.operacao)) return;
+    var prodInp = document.querySelector('[data-cfg="operacao.producaoMensalM2"]');
+    var cand = clone(draft); cand.operacao = Object.assign({}, draft.operacao, { producaoMensalM2: prodInp && prodInp.value !== '' ? Number(prodInp.value) : draft.operacao.producaoMensalM2 });
+    var r = CALC.resumoOperacao(cand);
+    // coluna R$/m² de cada lançamento e linha de total (sem recriar a tabela, para não tirar o foco de quem digita)
+    document.querySelectorAll('#op-itens td[data-op-idx]').forEach(function (td) {
+      var it = draft.operacao.itens[Number(td.getAttribute('data-op-idx'))], v = it ? Number(it.valorMensal) : NaN;
+      td.textContent = r.producaoMensalM2 > 0 && isFinite(v) && v > 0 ? brl(v / r.producaoMensalM2) : '—';
+    });
+    if ($('op-totalLinha')) $('op-totalLinha').textContent = brl(r.totalMensal);
+    if ($('op-taxaLinha')) $('op-taxaLinha').textContent = r.taxaM2 > 0 ? brl(r.taxaM2) : '—';
+    $('op-taxa').textContent = r.taxaM2 > 0 ? brl(r.taxaM2) + ' /m²' : '—';
+    $('op-taxaSub').textContent = r.taxaM2 > 0 ? r.lancamentos + ' lançamento(s) · ' + brl(r.totalMensal) + ' por mês ÷ ' + numFmt(r.producaoMensalM2, 0) + ' m²/mês' : 'Lance os custos mensais e informe a produção média mensal para calcular o R$/m².';
+    $('op-total').textContent = brl(r.totalMensal);
+    $('op-producao').textContent = r.producaoMensalM2 > 0 ? numFmt(r.producaoMensalM2, 0) + ' m²' : '— (não informada)';
+    $('op-taxa2').textContent = r.taxaM2 > 0 ? brl(r.taxaM2) + ' /m²' : '—';
+    var ex = DEF.inputs.quantidade;
+    $('op-exemplo').textContent = r.taxaM2 > 0 ? 'Exemplo: um orçamento de ' + numFmt(ex, 0) + ' m² carrega ' + brl(r.taxaM2 * ex) + ' de custo de operação (' + brl(r.taxaM2) + ' × ' + numFmt(ex, 0) + ' m²).' : '';
+    var av = $('op-avisos'); av.innerHTML = '';
+    r.avisos.forEach(function (a) { av.appendChild(el('p', { class: 'warn', text: a.charAt(0).toUpperCase() + a.slice(1) })); });
+    if (!r.avisos.length) av.appendChild(el('p', { text: 'Orçamentos novos: ' + (cand.operacao.padraoOrcamentos !== false ? 'já nascem com o custo incorporado' : 'nascem sem o custo') + ' · calculadoras: ' + (cand.operacao.padraoCalculadoras === true ? 'já incorporam' : 'começam desligadas') + ' (padrões editáveis ao lado; cada orçamento/simulação pode ligar ou desligar).' }));
+  }
+  function adicionarItemOperacao() {
+    if (!draft) draft = clone(config);
+    lerCamposSimples();
+    if (!isObj(draft.operacao)) draft.operacao = clone(DEF.config.operacao);
+    draft.operacao.itens.push({ id: ORC.gerarId('op'), categoria: 'aluguel', descricao: '', valorMensal: 0 });
+    renderOperacao();
+    $('tab-operacao').dispatchEvent(new Event('change', { bubbles: true }));
   }
   /* Termos e condições da proposta: um campo por cláusula; o que difere do padrão fica em draft.proposta.termos[id] */
   function renderTermosConfig() {
@@ -992,7 +1105,11 @@
     opts = opts || {};
     var i = el('input', { type: opts.type || 'number', step: opts.step || 'any', value: value });
     if (opts.placeholder) i.placeholder = opts.placeholder;
-    i.addEventListener('change', function () { onChange(i.value); });
+    // O valor digitado vai para o rascunho a cada tecla (input), não só ao sair do campo (change): o autosave de 500 ms
+    // lê o rascunho, então sem isso ele gravava o valor antigo e dizia "Salvo automaticamente" (parecer nº 8, achado 1).
+    // onChange(valor, evento): handlers que recriam a tabela só o fazem no 'change', para não tirar o foco de quem digita.
+    i.addEventListener('input', function () { onChange(i.value, 'input'); });
+    i.addEventListener('change', function () { onChange(i.value, 'change'); });
     return el('td', { class: opts.type === 'text' ? ('txt' + (opts.wide ? ' wide' : '')) : 'num' }, [i]);
   }
 
@@ -1058,7 +1175,7 @@
         var d = draft.difal[uf];
         return el('tr', {}, [
           el('td', { text: uf + (uf === empresaUF ? ' (empresa)' : '') }),
-          inputCell(Math.round(d[0] * 1e6) / 1e4, function (v) { d[0] = pctDe(v); CALC.derivarDifal(draft); renderDifal(); }, { step: '0.5' }),
+          inputCell(Math.round(d[0] * 1e6) / 1e4, function (v, ev) { d[0] = pctDe(v); CALC.derivarDifal(draft); if (ev === 'change') renderDifal(); }, { step: '0.5' }),
           el('td', { class: 'num', text: isFinite(d[1]) ? (Math.round(d[1] * 1e6) / 1e4) + '%' : '—', style: 'text-align:right;color:var(--muted)' })
         ]);
       }))
@@ -1071,32 +1188,50 @@
     return erros.length ? erros.slice(0, 4).join(' ') + (erros.length > 4 ? ' (+' + (erros.length - 4) + ' problemas)' : '') : null;
   }
 
-  function status(msg, cls) { var s = $('cfgStatus'); s.textContent = msg; s.className = 'status ' + (cls || ''); }
+  function status(msg, cls) { ['cfgStatus', 'opStatus'].forEach(function (id) { var s = $(id); if (s) { s.textContent = msg; s.className = 'status ' + (cls || ''); } }); }   // Configurações e Custo de operação salvam o mesmo rascunho
 
   function salvar() {
     lerCamposSimples();
     var erro = validarDraft();
     if (erro) { status(erro, 'err'); return; }
-    config = clone(draft);
-    draft = clone(config);
+    config = clone(draft); configSuja = false;
+    // O rascunho (draft) continua sendo o MESMO objeto: as tabelas já renderizadas (produtos, classes, cartão, FCP,
+    // lançamentos do custo de operação) guardam referências a ele; trocá-lo por uma cópia fazia a próxima edição
+    // cair no objeto antigo e o autosave gravar o rascunho novo sem ela (parecer nº 7, achado 1).
     status(salvarConfig(config) ? 'Configurações salvas.' : 'Salvo só nesta sessão (navegador sem armazenamento).', 'ok');
     NUVEM.configAlterada();
     preencherListas();
     recalcular();
     recalcularOperacoes();
+    if (abaAtual === 'operacao') renderOperacaoResumo();
   }
 
+  /* Edição de configuração em andamento nesta aba: autosave agendado (meio segundo após digitar) ou rascunho que ainda
+   * difere do salvo (ex.: valor inválido que o autosave recusou). Enquanto durar, nuvem.js NÃO aplica a configuração
+   * recebida de outra máquina por cima do que está sendo digitado: a gravação local segue, o servidor responde 409 e a
+   * decisão (sobrescrever × usar a do servidor) é explícita, como nos orçamentos (parecer nº 7, achado 2). */
+  var autoTimer = null;
+  var configSuja = false;   // houve digitação/alteração no rascunho ainda não gravada (válida ou não); limpa ao gravar ou ao trocar o rascunho
+  function configEmEdicao() { return !!draft && (autoTimer !== null || configSuja); }   // vale em QUALQUER aba (parecer nº 8, achado 2)
+  /* Conclui agora um autosave de configuração agendado (ao sair da aba, ao fechar a página): o que foi digitado e é válido
+   * fica salvo e vai para a fila do servidor; se for inválido, o rascunho continua protegido e o status mostra o motivo. */
+  function concluirAutoSalvarPendente() {
+    if (autoTimer === null) return;
+    clearTimeout(autoTimer); autoTimer = null;
+    autoSalvar();
+  }
   function autoSalvar() {
     if (!draft) return;
     lerCamposSimples();
     var erro = validarDraft();
     if (erro) { status('Não salvo — ' + erro, 'err'); return; }
-    config = clone(draft);
+    config = clone(draft); configSuja = false;
     var ok = salvarConfig(config);
     NUVEM.configAlterada();
     preencherListas();
     recalcular();
     recalcularOperacoes();
+    if (abaAtual === 'operacao') renderOperacaoResumo();
     var hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     status(ok ? 'Salvo automaticamente às ' + hora + '.' : 'Aplicado só nesta sessão (navegador sem armazenamento).', 'ok');
   }
@@ -1116,7 +1251,7 @@
       var candidato;
       try { var j = JSON.parse(fr.result); if (j && j.tipo === 'maisglass-backup') { if (!j.config) throw new Error('o arquivo de cópia de segurança não traz configuração.'); j = j.config; } candidato = normalizarConfig(j); }
       catch (e) { status('Arquivo inválido: ' + e.message, 'err'); return; }
-      draft = candidato;
+      draft = candidato; configSuja = true;
       renderConfig();
       status('Arquivo carregado. Clique em "Salvar agora" para aplicar (ou continue editando).', 'ok');
     };
@@ -1161,6 +1296,7 @@
     ['(−) Frete cobrado na NF (itens)', 'frete', 'sub'],
     ['(−) Taxa do cartão (itens)', 'cartao', 'sub'],
     ['(−) Custos internos do orçamento', 'custosInternos', 'sub'],
+    ['(−) Custo de operação da fábrica (R$/m² congelado × m² dos itens)', 'custoOperacao', 'sub', 'op'],
     ['= Lucro operacional (antes de IRPJ/CSLL)', 'lucroOperacional', 'total'],
     ['(−) IRPJ + CSLL (real: 34% sobre o lucro consolidado · presumido: soma dos itens)', 'irpjCsll'],
     ['= Lucro líquido do orçamento', 'lucroLiquido', 'final']
@@ -1200,8 +1336,9 @@
     o.itens.forEach(function (it) { if (it.origem === 'importacao' && it.inputs && typeof it.inputs.produto === 'string' && nomes.indexOf(it.inputs.produto) < 0) nomes.push(it.inputs.produto); });
     return nomes;
   }
-  function configCalculo(c, nomes) {
+  function configCalculo(c, nomes, comOperacao) {
     var x = Object.assign({}, c); delete x.empresa; delete x.proposta;
+    if (!comOperacao) delete x.operacao;   // custo de operação só pesa quando o orçamento o aplica (orçamentos antigos, sem o bloco, não acendem o aviso)
     var prods = (Array.isArray(c.produtos) ? c.produtos : []).filter(function (p) { return p && nomes.indexOf(p.nome) >= 0; })
       .sort(function (a, b) { return a.nome < b.nome ? -1 : 1; });
     var cls = {};
@@ -1211,7 +1348,8 @@
   }
   function configDifereDoSnapshot(o) {
     var nomes = materiaisUsados(o).filter(function (n) { return !!CALC.findProduto(config, n); });
-    return configCalculo(o.configSnapshot, nomes) !== configCalculo(config, nomes);
+    var comOp = ORC.aplicaCustoOperacao(o);
+    return configCalculo(o.configSnapshot, nomes, comOp) !== configCalculo(config, nomes, comOp);
   }
   /* Copia um material (e a classe fiscal dele, se faltar) de uma configuração para outra; devolve null se não der. */
   function comMaterial(destino, origemCfg, nome) {
@@ -1488,6 +1626,7 @@
     var permitidos = { rascunho: ['rascunho', 'enviado', 'aprovado', 'perdido'], enviado: ['enviado', 'aprovado', 'perdido'], aprovado: ['aprovado', 'perdido'], perdido: ['perdido'] }[orc.status] || ['rascunho'];
     Array.prototype.forEach.call(st.options, function (op) { op.disabled = permitidos.indexOf(op.value) < 0; });
     $('orcAddCusto').disabled = travado;
+    $('o-custoOperacao').disabled = travado;
     $('orcRecalcular').disabled = travado;
     var banner = $('orc-travado');
     banner.classList.toggle('hidden', !travado);
@@ -1801,6 +1940,24 @@
     orc.custosInternos.push({ id: ORC.gerarId('c'), tipo: 'freteContratado', descricao: '', valor: 0, percentual: null });
     renderOrc(); salvarOrcAtual();
   }
+  /* ---------- custo de operação do orçamento (rateio por m², taxa congelada no configSnapshot) ---------- */
+  function renderOperacaoOrc(c) {
+    var cb = $('o-custoOperacao'), info = $('o-custoOperacaoInfo'), op = c.operacao;
+    cb.checked = op.aplicar; cb.disabled = orcTravado();
+    var atual = CALC.resumoOperacao(config);
+    var txt;
+    if (!op.aplicar) txt = 'Desligado neste orçamento: a DRE não desconta o custo de operação.' + (op.configurado && op.taxaM2 > 0 ? ' Se ligar: ' + brl(op.taxaM2) + '/m² × ' + numFmt(op.m2, 2) + ' m² = ' + brl(op.taxaM2 * op.m2) + '.' : '');
+    else if (!op.configurado) txt = 'Ligado, mas a configuração congelada deste orçamento é anterior à aba Custo de operação — use "Recalcular com a configuração atual" para trazer a taxa' + (atual.taxaM2 > 0 ? ' (' + brl(atual.taxaM2) + '/m²)' : '') + '.';
+    else if (!(op.taxaM2 > 0)) txt = 'Ligado, mas a taxa congelada é zero (sem custos lançados ou sem produção média mensal quando o orçamento foi congelado).' + (atual.taxaM2 > 0 ? ' A configuração atual tem ' + brl(atual.taxaM2) + '/m² — use "Recalcular com a configuração atual".' : ' Cadastre na aba Custo de operação e depois use "Recalcular com a configuração atual".');
+    else txt = brl(op.taxaM2) + '/m² × ' + numFmt(op.m2, 2) + ' m² (itens calculados) = ' + brl(op.valor) + ' — custos fixos ' + brl(op.totalMensal) + '/mês ÷ produção média ' + numFmt(op.producaoMensalM2, 0) + ' m²/mês, congelados neste orçamento' + (Math.abs(atual.taxaM2 - op.taxaM2) > 1e-9 ? ' (a configuração atual está em ' + brl(atual.taxaM2) + '/m² — "Recalcular" atualiza)' : '') + '.';
+    info.textContent = txt;
+    info.className = op.aplicar && !(op.taxaM2 > 0) ? 'warn' : 'hint';
+  }
+  function onCustoOperacaoOrc() {
+    if (!orc || orcTravado()) { if (orc) renderOperacaoOrc(ORC.consolidar(orc)); return; }
+    orc.custoOperacao = { aplicar: $('o-custoOperacao').checked };
+    renderOrc(); salvarOrcAtual();
+  }
 
   /* ---------- consolidado, DRE, composição, proposta ---------- */
   function renderOrc() {
@@ -1812,20 +1969,20 @@
     var t = c.totais;
     $('oo-totalLabel').textContent = 'Total ao cliente' + (t.itens ? ' (' + t.itens + ' ite' + (t.itens > 1 ? 'ns' : 'm') + ')' : '');
     $('oo-total').textContent = brl(t.totalCliente);
-    $('oo-totalSub').textContent = t.itens ? 'Custo total ' + brl(t.custoTotalReal) + ' (antes de IRPJ/CSLL, cenário real) · lucro operacional ' + brl(t.lucroOperacional) + (t.margemOperacional !== null ? ' (' + pct(t.margemOperacional, 1) + ')' : '') + ' · custos internos já descontados' : 'Adicione itens pelas calculadoras.';
+    $('oo-totalSub').textContent = t.itens ? 'Custo total ' + brl(t.custoTotalReal) + ' (antes de IRPJ/CSLL, cenário real) · lucro operacional ' + brl(t.lucroOperacional) + (t.margemOperacional !== null ? ' (' + pct(t.margemOperacional, 1) + ')' : '') + ' · custos internos' + (c.operacao.aplicar ? ' e custo de operação (' + brl(t.custoOperacao) + ')' : '') + ' já descontados' : 'Adicione itens pelas calculadoras.';
     $('oo-liqReal').textContent = brl(c.real.lucroLiquido);
     $('oo-liqRealSub').textContent = pctNa(c.real.margemSobreValorPago) + ' do valor pago · IRPJ/CSLL ' + brl(c.real.irpjCsll);
     $('oo-liqPres').textContent = brl(c.presumido.lucroLiquido);
     var delta = c.presumido.lucroLiquido - c.real.lucroLiquido;
     $('oo-liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(c.presumido.irpjCsll);
     renderGraficoGenerico('oviz', t.totalCliente, t.custoTotalReal, c.real.lucroLiquido, c.composicao.map(function (p) {
-      var sub = p.chave === 'tributos' ? 'venda ' + brl(c.real.deducoes) + ' · IRPJ/CSLL ' + brl(c.real.irpjCsll) : (p.chave === 'cmv' ? 'líquido dos créditos' : (p.chave === 'internos' ? (orc.custosInternos.length + ' lançamento(s)') : (p.chave === 'lucro' ? 'lucro real' : 'itens')));
+      var sub = p.chave === 'tributos' ? 'venda ' + brl(c.real.deducoes) + ' · IRPJ/CSLL ' + brl(c.real.irpjCsll) : (p.chave === 'cmv' ? 'líquido dos créditos' : (p.chave === 'internos' ? (orc.custosInternos.length + ' lançamento(s)') : (p.chave === 'operacao' ? (c.operacao.aplicar ? brl(c.operacao.taxaM2) + '/m² × ' + numFmt(c.operacao.m2, 0) + ' m²' : 'desligado') : (p.chave === 'lucro' ? 'lucro real' : 'itens'))));
       return { nome: p.nome, sub: sub, valor: p.valor, chave: p.chave };
-    }));
+    }).filter(function (p) { return p.chave !== 'operacao' || c.operacao.aplicar; }));
     renderDre(c.real, c.presumido, 'oo-dre', DRE_LINHAS_ORCAMENTO, 'Tributos totais líquidos (itens) + IRPJ/CSLL consolidado');
     var p = orc.premissas;
-    $('orc-dreHint').textContent = 'Estimativa gerencial — não é apuração. Premissas congeladas neste orçamento: IRPJ/CSLL real ' + pct(p.irpjCsllReal, 0) + ' (marginal) sobre o lucro consolidado — prejuízo de um item compensa outro e custos internos são tratados como dedutíveis; presumido ' + pct(p.irpj, 0) + ' + ' + pct(p.csll, 0) + ' sobre ' + pct(p.presumidoBaseIRPJ, 0) + '/' + pct(p.presumidoBaseCSLL, 0) + ' da receita' + (p.lc224 ? ' (+10%, LC 224/2025)' : '') + ', somado por item; custos internos sem crédito de PIS/COFINS. Configuração congelada: dólar ' + numFmt(orc.configSnapshot.dolar, 2) + ' · motor ' + orc.versaoMotor + '.';
-    renderItensOrc(c); renderCustosOrc(c);
+    $('orc-dreHint').textContent = 'Estimativa gerencial — não é apuração. Premissas congeladas neste orçamento: IRPJ/CSLL real ' + pct(p.irpjCsllReal, 0) + ' (marginal) sobre o lucro consolidado — prejuízo de um item compensa outro e custos internos são tratados como dedutíveis; presumido ' + pct(p.irpj, 0) + ' + ' + pct(p.csll, 0) + ' sobre ' + pct(p.presumidoBaseIRPJ, 0) + '/' + pct(p.presumidoBaseCSLL, 0) + ' da receita' + (p.lc224 ? ' (+10%, LC 224/2025)' : '') + ', somado por item; custos internos sem crédito de PIS/COFINS. ' + (c.operacao.aplicar ? 'Custo de operação ligado: ' + brl(c.operacao.taxaM2) + '/m² (taxa congelada) × ' + numFmt(c.operacao.m2, 0) + ' m² = ' + brl(c.operacao.valor) + ', dedutível no lucro real, sem crédito. ' : 'Custo de operação desligado neste orçamento. ') + 'Configuração congelada: dólar ' + numFmt(orc.configSnapshot.dolar, 2) + ' · motor ' + orc.versaoMotor + '.';
+    renderItensOrc(c); renderCustosOrc(c); renderOperacaoOrc(c);
     var av = $('oo-avisos'); av.innerHTML = '';
     var calculado = orc.itens.length ? orc.itens.reduce(function (m, it) { return it.calculadoEm > m ? it.calculadoEm : m; }, '') : orc.criadoEm;
     $('orc-itensInfo').textContent = orc.itens.length ? 'Itens calculados com dólar ' + numFmt(orc.configSnapshot.dolar, 2) + ' (configuração congelada em ' + dataHora(calculado) + ' · motor ' + orc.versaoMotor + ').' : '';
@@ -2099,6 +2256,7 @@
     $('orcImportar').addEventListener('click', function () { $('orcArquivo').click(); });
     $('orcArquivo').addEventListener('change', function () { if (this.files[0]) importarOrc(this.files[0]); this.value = ''; });
     $('orcAddCusto').addEventListener('click', adicionarCusto);
+    $('o-custoOperacao').addEventListener('change', onCustoOperacaoOrc);
     if ($('orcMigrar')) $('orcMigrar').addEventListener('click', migrarLocais);
     ['o-uf', 'o-destinatario', 'o-pagamento', 'o-bandeira', 'o-parcelas'].forEach(function (id) { $(id).addEventListener('change', function () { if (orc) onCabecalhoFiscal(); }); });
     $('o-status').addEventListener('change', function () { if (orc) onStatusOrc(); });
@@ -2108,6 +2266,7 @@
     });
     [['in-', 'importacao'], ['r-', 'revenda'], ['n-', 'nacional']].forEach(function (par) { var b = $(par[0] + 'addOrc'); if (b) b.addEventListener('click', function () { adicionarItem(par[1]); }); });
     window.addEventListener('pagehide', concluirSalvarPendente);
+    window.addEventListener('pagehide', concluirAutoSalvarPendente);
     window.addEventListener('beforeunload', function (ev) { concluirSalvarPendente(); if (temNaoSalvos() || NUVEM.pendentes() > 0) { ev.preventDefault(); ev.returnValue = ''; } });
     window.addEventListener('storage', function (ev) {
       if (ev.key !== ORC_KEY) return;
@@ -2160,13 +2319,26 @@
 
     $('cfgSalvar').addEventListener('click', salvar);
     // Salvamento automático: qualquer alteração na aba Configurações valida e salva sozinha.
-    var autoTimer = null;
     function agendarAutoSalvar(e) {
       if (e && e.target && e.target.id === 'cfgArquivo') { clearTimeout(autoTimer); autoTimer = null; return; }   // importar JSON cancela autosave pendente; só aplica em "Salvar agora"
-      clearTimeout(autoTimer); autoTimer = setTimeout(autoSalvar, 500);
+      configSuja = true;
+      clearTimeout(autoTimer); autoTimer = setTimeout(function () { autoTimer = null; autoSalvar(); }, 500);
     }
     $('tab-config').addEventListener('input', agendarAutoSalvar);
     $('tab-config').addEventListener('change', agendarAutoSalvar);
+    // aba Custo de operação: mesmo rascunho e mesmo salvamento automático da configuração
+    $('tab-operacao').addEventListener('input', agendarAutoSalvar);
+    $('tab-operacao').addEventListener('change', agendarAutoSalvar);
+    $('opSalvar').addEventListener('click', salvar);
+    $('opAddItem').addEventListener('click', adicionarItemOperacao);
+    document.querySelector('[data-cfg="operacao.producaoMensalM2"]').addEventListener('input', renderOperacaoResumo);
+    document.querySelectorAll('#tab-operacao select[data-cfg]').forEach(function (s) { s.addEventListener('change', function () { lerCamposSimples(); renderOperacaoResumo(); }); });
+    // estado inicial do liga/desliga nas três calculadoras (padrão da aba Custo de operação; cada aba pode mudar).
+    // Num navegador novo a configuração da empresa só chega do servidor depois deste ponto: aplicarConfigRecebida
+    // reaplica o padrão UMA vez, na primeira carga, se o usuário ainda não mexeu nas caixas (parecer nº 7, achado 3).
+    ['in-', 'r-', 'n-'].forEach(function (p) { var cb = $(p + 'custoOperacao'); if (cb) cb.addEventListener('change', function () { custoOpManual = true; }); });
+    aplicarPadraoCalculadoras();
+    recalcular(); recalcularOperacoes();
     $('cfgExportar').addEventListener('click', exportar);
     $('cfgImportar').addEventListener('click', function () { $('cfgArquivo').click(); });
     $('cfgArquivo').addEventListener('change', function () { if (this.files[0]) importar(this.files[0]); this.value = ''; });
@@ -2194,14 +2366,16 @@
     try { c = normalizarConfig(cfg); } catch (e) { console.warn('Configuração recebida inválida', e); return; }
     config = c;
     salvarConfig(config);
-    draft = clone(config);
-    if (abaAtual === 'config') renderConfig();
+    draft = clone(config); configSuja = false; if (autoTimer !== null) { clearTimeout(autoTimer); autoTimer = null; }
+    if (ABAS_CONFIG.indexOf(abaAtual) >= 0) renderConfig();
+    if (!padraoCalcDoServidor) { padraoCalcDoServidor = true; aplicarPadraoCalculadoras(); }   // 1ª configuração do servidor (navegador novo): padrão das calculadoras
     preencherListas(); recalcular(); recalcularOperacoes(); atualizarCabecalho();
     status('Configuração atualizada' + (meta && meta.atualizadoPor ? ' por ' + meta.atualizadoPor : '') + (meta && meta.atualizadoEm ? ' em ' + dataHora(meta.atualizadoEm) : '') + ' (servidor).', 'ok');
   }
   function iniciarNuvem() {
     NUVEM.iniciar({
       orcAberto: function () { return orc ? orc.id : null; },
+      configEmEdicao: configEmEdicao,
       confirmar: function (msg) { return confirm(msg); },
       aoStatus: hdrSync,
       aoReceberOrcamentos: function (info) {

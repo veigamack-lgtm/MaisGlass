@@ -110,6 +110,20 @@ function orcamentoValido(id, nome) {
   cfgT.proposta.termos = { garantia: 'Garantia de 2 anos.' }; cfgT.empresa.site = 'www.maisglass.com.br';
   const VAL = require('../api/_lib/validar.js');
   igual('termos válidos e empresa.site passam pela validação do servidor sem perda', [VAL.config(cfgT).proposta.termos, VAL.config(cfgT).empresa.site], [{ garantia: 'Garantia de 2 anos.' }, 'www.maisglass.com.br']);
+  // custo de operação (out/2026): o servidor valida o bloco com o mesmo validarConfig do app
+  const cfgOp = JSON.parse(JSON.stringify(cfg2));
+  cfgOp.operacao = { producaoMensalM2: 3500, itens: [{ id: 'op1', categoria: 'aluguel', descricao: 'Galpão', valorMensal: 15000 }], padraoOrcamentos: true, padraoCalculadoras: false };
+  r = await A.put('/api/config', { dados: cfgOp, versaoBase: 2 });
+  igual('custo de operação válido é gravado (versão 3)', [r.status, r.corpo.versao], [200, 3]);
+  igual('…e volta íntegro na leitura', (await X.get('/api/config')).corpo.dados.operacao, cfgOp.operacao);
+  const cfgOpRuim = JSON.parse(JSON.stringify(cfgOp)); cfgOpRuim.operacao.itens[0].valorMensal = -1;
+  igual('custo de operação com valor negativo → 400', (await A.put('/api/config', { dados: cfgOpRuim, versaoBase: 3 })).status, 400);
+  cfgOpRuim.operacao.itens[0].valorMensal = 10; cfgOpRuim.operacao.itens[0].categoria = 'xpto';
+  igual('custo de operação com categoria desconhecida → 400', (await A.put('/api/config', { dados: cfgOpRuim, versaoBase: 3 })).status, 400);
+  const cfgSemOp = JSON.parse(JSON.stringify(cfgOp)); delete cfgSemOp.operacao;
+  igual('configuração antiga (sem o bloco) é aceita e migrada com o padrão', [VAL.config(cfgSemOp).operacao.producaoMensalM2, VAL.config(cfgSemOp).operacao.itens.length], [0, 0]);
+  r = await A.put('/api/config', { dados: cfg2, versaoBase: 3 });   // volta à configuração sem lançamentos para o resto dos testes (versão 4)
+  igual('configuração restaurada para o restante dos testes', r.status, 200);
 
   console.log('--- orçamentos: PUT/GET/versões');
   const o1 = orcamentoValido('orc_a', 'Cliente A');
@@ -151,7 +165,7 @@ function orcamentoValido(id, nome) {
   console.log('--- sync incremental');
   S.ctx.avancarRelogio(5000);                                            // fora da sobreposição de 2 s do sync
   r = await A.get('/api/sync');
-  igual('carga completa: 1 orçamento, config versão 2, agora do servidor', [r.corpo.orcamentos.length, r.corpo.config.versao, typeof r.corpo.agora], [1, 2, 'string']);
+  igual('carga completa: 1 orçamento, config versão 4 (2 gravações do custo de operação acima), agora do servidor', [r.corpo.orcamentos.length, r.corpo.config.versao, typeof r.corpo.agora], [1, 4, 'string']);
   const marca = r.corpo.agora;
   S.ctx.avancarRelogio(5000);
   await B.put('/api/orcamentos/orc_b', { dados: orcamentoValido('orc_b', 'Cliente B'), versaoBase: null });

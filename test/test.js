@@ -908,5 +908,142 @@ igual('alíquota alterada em MG: reclassificação dá automático (campo não s
 mesmo('alíquota alterada no RJ para 12%: automático; para 10%: manual', [O.classificarAliquotaSaida('nacional', Object.assign({}, inNac, { clienteUF: 'RJ', icmsSaida: 0.12 })), O.classificarAliquotaSaida('nacional', Object.assign({}, inNac, { clienteUF: 'RJ', icmsSaida: 0.10 }))], [false, true]);
 igual('dataValida exportada para a interface/testes', typeof O.dataValida, 'function');
 
+/* =====================================================================
+ * Custo de operação (out/2026): custos fixos mensais ÷ produção média mensal = R$/m²; × m² vendidos, só na DRE.
+ * Cenário de referência: R$ 70.000/mês (15.000 aluguel + 42.000 pessoal + 6.500 energia + 6.500 administrativo)
+ * ÷ 3.500 m²/mês = R$ 20,00/m²; cenário da planilha (1.336 m²) → R$ 26.720,00.
+ * ===================================================================== */
+console.log('\n== Custo de operação — configuração ==');
+var cfgOp = JSON.parse(JSON.stringify(D.config));
+mesmo('padrão: bloco operacao vazio, orçamentos ligados, calculadoras desligadas', [cfgOp.operacao.producaoMensalM2, cfgOp.operacao.itens, cfgOp.operacao.padraoOrcamentos, cfgOp.operacao.padraoCalculadoras], [0, [], true, false]);
+igual('padrão é válido', C.validarConfig(cfgOp).length, 0);
+igual('categorias expostas para a interface', Object.keys(C.CATEGORIAS_OPERACAO).join(','), 'aluguel,pessoal,energia,manutencao,producao,administrativo,financeiro,outros');
+cfgOp.operacao.producaoMensalM2 = 3500;
+cfgOp.operacao.itens = [
+  { id: 'op1', categoria: 'aluguel', descricao: 'Galpão', valorMensal: 15000 },
+  { id: 'op2', categoria: 'pessoal', descricao: 'Folha + encargos', valorMensal: 42000 },
+  { id: 'op3', categoria: 'energia', descricao: 'CEMIG', valorMensal: 6500 },
+  { id: 'op4', categoria: 'administrativo', descricao: 'Escritório', valorMensal: 6500 }
+];
+igual('configuração com lançamentos é válida', C.validarConfig(cfgOp).length, 0);
+function invCfgOp(nome, mut) { var c2 = JSON.parse(JSON.stringify(cfgOp)); mut(c2); var n = C.validarConfig(c2).length; if (!n) falhas++; console.log((n ? 'OK   ' : 'FALHA') + ' ' + nome + (n ? '' : '  (esperava erro)')); }
+invCfgOp('valor mensal negativo é recusado', function (c2) { c2.operacao.itens[0].valorMensal = -1; });
+invCfgOp('valor mensal não numérico é recusado', function (c2) { c2.operacao.itens[0].valorMensal = 'abc'; });
+invCfgOp('categoria desconhecida é recusada', function (c2) { c2.operacao.itens[0].categoria = 'xpto'; });
+invCfgOp('lançamento sem id é recusado', function (c2) { delete c2.operacao.itens[0].id; });
+invCfgOp('ids duplicados são recusados', function (c2) { c2.operacao.itens[1].id = 'op1'; });
+invCfgOp('descrição não texto é recusada', function (c2) { c2.operacao.itens[0].descricao = 5; });
+invCfgOp('produção média negativa é recusada', function (c2) { c2.operacao.producaoMensalM2 = -10; });
+invCfgOp('itens que não é lista é recusado', function (c2) { c2.operacao.itens = {}; });
+invCfgOp('padraoOrcamentos não booleano é recusado', function (c2) { c2.operacao.padraoOrcamentos = 'sim'; });
+invCfgOp('bloco operacao que não é objeto é recusado', function (c2) { c2.operacao = []; });
+var cfgSemBloco = JSON.parse(JSON.stringify(D.config)); delete cfgSemBloco.operacao;
+igual('configuração SEM o bloco (congelada em orçamento antigo) continua válida', C.validarConfig(cfgSemBloco).length, 0);
+var cfgMigOp = C.migrarConfig(cfgSemBloco, D.config);
+mesmo('migrarConfig completa o bloco com o padrão (versão inalterada)', [cfgMigOp.operacao.producaoMensalM2, cfgMigOp.operacao.itens.length, cfgMigOp.operacao.padraoOrcamentos, cfgMigOp.versao], [0, 0, true, D.config.versao]);
+cfgMigOp.operacao.itens.push({ id: 'x', categoria: 'outros', descricao: '', valorMensal: 1 });
+igual('bloco migrado é cópia (não compartilha a lista do padrão)', D.config.operacao.itens.length, 0);
+var cfgMig2 = C.migrarConfig(cfgOp, D.config);
+mesmo('migrarConfig preserva lançamentos e produção já salvos', [cfgMig2.operacao.producaoMensalM2, cfgMig2.operacao.itens.length, cfgMig2.operacao.itens[1].valorMensal], [3500, 4, 42000]);
+
+console.log('\n== Custo de operação — resumo e rateio ==');
+var ro = C.resumoOperacao(cfgOp);
+mesmo('70.000 ÷ 3.500 = R$ 20,00/m² (4 lançamentos, configurado, sem avisos)', [ro.totalMensal, ro.producaoMensalM2, ro.taxaM2, ro.lancamentos, ro.configurado, ro.avisos.length], [70000, 3500, 20, 4, true, 0]);
+aprox('1.336 m² → R$ 26.720,00', C.custoOperacaoDe(cfgOp, 1336), 26720, 1e-9);
+aprox('quantidade em texto "600" é aceita', C.custoOperacaoDe(cfgOp, '600'), 12000, 1e-9);
+mesmo('quantidade inválida ou zero → 0', [C.custoOperacaoDe(cfgOp, 0), C.custoOperacaoDe(cfgOp, 'x'), C.custoOperacaoDe(cfgOp, -5)], [0, 0, 0]);
+var cfgSemProd = JSON.parse(JSON.stringify(cfgOp)); cfgSemProd.operacao.producaoMensalM2 = 0;
+var rsp = C.resumoOperacao(cfgSemProd);
+mesmo('sem produção média: taxa 0 e aviso (a base é a produção do mês, nunca os m² do orçamento)', [rsp.taxaM2, rsp.totalMensal, rsp.avisos.length, /produção média mensal/.test(rsp.avisos[0])], [0, 70000, 1, true]);
+var cfgSemItens = JSON.parse(JSON.stringify(cfgOp)); cfgSemItens.operacao.itens = [];
+var rsi = C.resumoOperacao(cfgSemItens);
+mesmo('sem lançamentos: taxa 0 e aviso', [rsi.taxaM2, rsi.avisos.length, /nenhum custo mensal/.test(rsi.avisos[0])], [0, 1, true]);
+var rsb = C.resumoOperacao(cfgSemBloco);
+mesmo('configuração sem o bloco: não configurado, taxa 0, aviso pede Recalcular', [rsb.configurado, rsb.taxaM2, /Recalcular/.test(rsb.avisos[0])], [false, 0, true]);
+var cfgZeroItem = JSON.parse(JSON.stringify(cfgOp)); cfgZeroItem.operacao.itens.push({ id: 'z', categoria: 'outros', descricao: 'zerado', valorMensal: 0 });
+mesmo('lançamento com valor 0 não conta nem na soma nem na contagem', [C.resumoOperacao(cfgZeroItem).totalMensal, C.resumoOperacao(cfgZeroItem).lancamentos], [70000, 4]);
+
+console.log('\n== Custo de operação — DRE das calculadoras (dreComOperacao) ==');
+var rOp = C.calcularImportacao(cfgOp, inp), dOp0 = C.dreImportacao(cfgOp, rOp), custoOp = C.custoOperacaoDe(cfgOp, rOp.quantidade);
+var dOp = C.dreComOperacao(cfgOp, dOp0, custoOp);
+aprox('planilha intacta: lucro operacional de origem continua 84.765,33', dOp0.real.lucroOperacional, 84765.33, 0.01);
+aprox('real: lucro operacional − 26.720 = 58.045,33', dOp.real.lucroOperacional, 58045.33, 0.01);
+aprox('real: IRPJ/CSLL recalculado 34% sobre o lucro reduzido = 19.735,41', dOp.real.irpjCsll, 19735.41, 0.01);
+aprox('real: lucro líquido 38.309,92 (= 55.945,12 − 26.720 × 66%)', dOp.real.lucroLiquido, 38309.92, 0.01);
+aprox('presumido: IRPJ/CSLL inalterado (base é a receita)', dOp.presumido.irpjCsll, dOp0.presumido.irpjCsll, 1e-9);
+aprox('presumido: lucro líquido 82.364,69 − 26.720 = 55.644,69', dOp.presumido.lucroLiquido, 55644.69, 0.01);
+mesmo('linha marcada e custo gravado nos dois regimes', [dOp.real.custoOperacao, dOp.real.custoOperacaoAplicado, dOp.presumido.custoOperacao, dOp.presumido.custoOperacaoAplicado], [26720, true, 26720, true]);
+['real', 'presumido'].forEach(function (reg) {
+  var d = dOp[reg], d0 = dOp0[reg];
+  aprox(reg + ': receita, deduções, CMV, frete e cartão não mudam', (d.receitaBruta - d0.receitaBruta) + (d.deducoes - d0.deducoes) + (d.cmv - d0.cmv) + (d.frete - d0.frete) + (d.cartao - d0.cartao), 0, 1e-9);
+  aprox(reg + ': lucro líquido = lucro operacional − IRPJ/CSLL', d.lucroLiquido, d.lucroOperacional - d.irpjCsll, 1e-9);
+  aprox(reg + ': tributos totais = antes − IRPJ antigo + IRPJ novo', d.tributosTotais, d0.tributosTotais - d0.irpjCsll + d.irpjCsll, 1e-9);
+  aprox(reg + ': margem líquida sobre a receita líquida', d.margemLiquida, d.lucroLiquido / d.receitaLiquida, 1e-12);
+  aprox(reg + ': margem sobre o valor pago', d.margemSobreValorPago, d.lucroLiquido / d.receitaBruta, 1e-12);
+});
+igual('DRE de origem não é alterada (sem linha de custo de operação)', dOp0.real.custoOperacao === undefined && dOp0.real.lucroOperacional > dOp.real.lucroOperacional, true);
+var dPrej = C.dreComOperacao(cfgOp, dOp0, dOp0.real.lucroOperacional + 1000);
+mesmo('custo maior que o lucro: prejuízo de 1.000 e IRPJ real zero', [Math.round(dPrej.real.lucroOperacional), dPrej.real.irpjCsll], [-1000, 0]);
+lanca('custo negativo é recusado', function () { C.dreComOperacao(cfgOp, dOp0, -1); }, /negativo/);
+lanca('DRE inválida é recusada', function () { C.dreComOperacao(cfgOp, { real: {} }, 10); }, /DRE inválida/);
+var rRevOp = C.calcularRevenda(cfgOp, in4), dRevOp = C.dreComOperacao(cfgOp, rRevOp.dre, C.custoOperacaoDe(cfgOp, in4.quantidade));
+aprox('revenda §4 (600 m²): custo de operação 12.000 e lucro operacional 12.362,37 − 12.000 = 362,37', dRevOp.real.lucroOperacional, 362.37, 0.01);
+aprox('revenda §4: IRPJ real 34% × 362,37 = 123,21', dRevOp.real.irpjCsll, 123.21, 0.01);
+aprox('revenda §4: presumido líquido 9.583,40 − 12.000 = −2.416,60', dRevOp.presumido.lucroLiquido, -2416.60, 0.01);
+
+console.log('\n== Custo de operação — orçamentos ==');
+var oOp = O.novoOrcamento(cfgOp, { nome: 'Teste', uf: 'RJ', destinatario: 'consumidorFinal' });
+mesmo('orçamento novo nasce ligado (padraoOrcamentos true) e com a premissa de dedutibilidade', [oOp.custoOperacao, oOp.premissas.custoOperacaoDedutivel], [{ aplicar: true }, true]);
+var cfgPadOff = JSON.parse(JSON.stringify(cfgOp)); cfgPadOff.operacao.padraoOrcamentos = false;
+mesmo('padraoOrcamentos false → nasce desligado; config sem o bloco → desligado; aba ainda vazia (taxa 0) → desligado, sem ruído', [O.novoOrcamento(cfgPadOff, {}).custoOperacao.aplicar, O.novoOrcamento(cfgSemBloco, {}).custoOperacao.aplicar, O.novoOrcamento(D.config, {}).custoOperacao.aplicar, O.novoOrcamento(cfgSemProd, {}).custoOperacao.aplicar], [false, false, false, false]);
+igual('orçamento novo com a aba vazia consolida sem aviso de custo de operação', O.consolidar(O.novoOrcamento(D.config, {})).avisos.filter(function (a) { return /Custo de operação/.test(a); }).length, 0);
+var itOpImp = addItem(oOp, 'importacao', inpImp, 'Laminado 4+4');
+var itOpRev = addItem(oOp, 'revenda', inpRev, 'Revenda 600 m²');
+oOp.itens.push({ id: 'semres', origem: 'nacional', descricao: 'sem resultado', inputs: Object.assign({}, inpNac, { quantidade: 999 }) });   // item não calculado: não entra no rateio
+oOp.custosInternos.push({ id: 'ci1', tipo: 'instalacao', descricao: 'Equipe', valor: 4000, percentual: null });
+igual('orçamento com custo de operação é válido', O.validarOrcamento(oOp).length, 0);
+var cOn = O.consolidar(oOp);
+mesmo('rateio: taxa congelada 20 × (1.336 + 600) m² dos itens calculados = 38.720', [cOn.operacao.aplicar, cOn.operacao.taxaM2, cOn.operacao.m2, cOn.operacao.valor, cOn.real.custoOperacao, cOn.real.custoOperacaoAplicado], [true, 20, 1936, 38720, 38720, true]);
+aprox('lucro operacional = lucro bruto − frete − cartão − custos internos − custo de operação', cOn.real.lucroOperacional, cOn.real.lucroBruto - cOn.real.frete - cOn.real.cartao - 4000 - 38720, 1e-6);
+aprox('IRPJ/CSLL real sobre o lucro já reduzido', cOn.real.irpjCsll, Math.max(0, cOn.real.lucroOperacional) * 0.34, 1e-6);
+aprox('custo total do cenário real inclui o custo de operação', cOn.totais.custoTotalReal, cOn.totais.custoItens + 4000 + 38720, 1e-6);
+aprox('composição fecha no total pago (com a fatia nova)', cOn.composicao.reduce(function (s, p) { return s + p.valor; }, 0), cOn.real.receitaBruta, 1e-6);
+igual('composição traz a fatia "operacao" com 38.720', cOn.composicao.filter(function (p) { return p.chave === 'operacao'; })[0].valor, 38720);
+igual('sem avisos de custo de operação quando configurado', cOn.avisos.filter(function (a) { return /Custo de operação/.test(a); }).length, 0);
+var oOff = JSON.parse(JSON.stringify(oOp)); oOff.custoOperacao.aplicar = false;
+var cOff = O.consolidar(oOff);
+mesmo('desligado: linha zero e não marcada; nenhum outro número muda', [cOff.real.custoOperacao, cOff.real.custoOperacaoAplicado, cOff.operacao.valor], [0, false, 0]);
+aprox('desligado: lucro operacional volta a subir exatamente 38.720', cOff.real.lucroOperacional - cOn.real.lucroOperacional, 38720, 1e-6);
+aprox('desligado: presumido IRPJ/CSLL igual ao ligado (soma dos itens)', cOff.presumido.irpjCsll, cOn.presumido.irpjCsll, 1e-9);
+aprox('desligado: lucro líquido presumido difere só pelo custo (38.720)', cOff.presumido.lucroLiquido - cOn.presumido.lucroLiquido, 38720, 1e-6);
+igual('desligado: composição sem valor na fatia operacao', cOff.composicao.filter(function (p) { return p.chave === 'operacao'; })[0].valor, 0);
+// taxa congelada: mudar a configuração ATUAL não muda o orçamento
+var oCong = JSON.parse(JSON.stringify(oOp)); oCong.configSnapshot.operacao.producaoMensalM2 = 7000;
+aprox('snapshot com produção 7.000: taxa 10 → custo 19.360 (vale a configuração congelada, não a atual)', O.consolidar(oCong).real.custoOperacao, 19360, 1e-6);
+// ligado sem taxa: avisos
+var oZero = JSON.parse(JSON.stringify(oOp)); oZero.configSnapshot.operacao.producaoMensalM2 = 0;
+var cZero = O.consolidar(oZero);
+mesmo('ligado mas sem produção média congelada: custo 0 e aviso', [cZero.real.custoOperacao, cZero.avisos.some(function (a) { return /Custo de operação ligado, mas produção média mensal/.test(a); })], [0, true]);
+var oAntigo = JSON.parse(JSON.stringify(oOp)); delete oAntigo.configSnapshot.operacao;
+var cAntigo = O.consolidar(oAntigo);
+mesmo('ligado em orçamento cuja configuração congelada não tem o bloco: custo 0, aviso pede Recalcular, orçamento válido', [cAntigo.operacao.configurado, cAntigo.real.custoOperacao, cAntigo.avisos.some(function (a) { return /Recalcular com a configuração atual/.test(a); }), O.validarOrcamento(oAntigo).length], [false, 0, true, 0]);
+var oAntigoOff = JSON.parse(JSON.stringify(oAntigo)); oAntigoOff.custoOperacao.aplicar = false;
+igual('desligado em orçamento antigo: nenhum aviso de custo de operação', O.consolidar(oAntigoOff).avisos.filter(function (a) { return /Custo de operação/.test(a); }).length, 0);
+// validação e migração
+function invOp(nome, mut) { var oo = JSON.parse(JSON.stringify(oOp)); mut(oo); var n = O.validarOrcamento(oo).length; if (!n) falhas++; console.log((n ? 'OK   ' : 'FALHA') + ' ' + nome + (n ? '' : '  (esperava erro)')); }
+invOp('custoOperacao.aplicar não booleano é recusado', function (oo) { oo.custoOperacao.aplicar = 'sim'; });
+invOp('custoOperacao sem aplicar é recusado', function (oo) { oo.custoOperacao = {}; });
+invOp('custoOperacao que não é objeto é recusado', function (oo) { oo.custoOperacao = true; });
+invOp('configuração congelada com lançamento inválido é recusada', function (oo) { oo.configSnapshot.operacao.itens[0].valorMensal = -5; });
+var oSemCampo = JSON.parse(JSON.stringify(oOp)); delete oSemCampo.custoOperacao;
+mesmo('orçamento sem o campo (anterior à aba): válido e consolida DESLIGADO', [O.validarOrcamento(oSemCampo).length, O.consolidar(oSemCampo).real.custoOperacao, O.consolidar(oSemCampo).real.lucroOperacional === cOff.real.lucroOperacional], [0, 0, true]);
+var migOp = O.migrarOrcamento(oSemCampo);
+mesmo('migrarOrcamento completa custoOperacao = desligado (nenhum número muda sozinho)', migOp.custoOperacao, { aplicar: false });
+mesmo('migrarOrcamento preserva o campo quando existe', O.migrarOrcamento(oOp).custoOperacao, { aplicar: true });
+lanca('migrar: "custoOperacao" lista é recusado', function () { O.migrarOrcamento({ id: 'x', custoOperacao: [] }); }, /malformado/);
+igual('aplicaCustoOperacao exportado', [O.aplicaCustoOperacao(oOp), O.aplicaCustoOperacao(oSemCampo), O.aplicaCustoOperacao(oOff)].join(','), 'true,false,false');
+// item adicionado a um orçamento continua sem custo de operação (o rateio é do orçamento, não do item)
+igual('resultado do item não carrega custo de operação (identidades da DRE do item preservadas)', O.validarResultadoItem(itOpImp.resultado, 'importacao', 'item').length === 0 && itOpImp.resultado.dre.real.custoOperacao === undefined, true);
+
 console.log('\n' + (falhas ? falhas + ' FALHA(S)' : 'Todos os testes passaram.'));
 process.exit(falhas ? 1 : 0);
