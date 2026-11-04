@@ -1058,6 +1058,17 @@ mesmo('importação: campo precoBase, R$/m² obtido = 170,00 (±0,005)', [pm.cam
 aprox('preço base equivalente ≈ 144,0678 (= 170 ÷ 1,18: DIFAL 16% + FCP 2% do RJ, à vista, sem frete)', pm.preco, 144.0678, 0.00005);
 mesmo('preço com o menor nº de casas que mantém R$/m² E total exatos nos centavos (total = 170 × 1.336 = 227.120,00)', [Math.abs(pm.resultado.precoFinal - 227120) <= 0.004, String(pm.preco).replace(/^.*\./, '').length <= 10, Math.round(pm.resultado.precoFinal * 100) / 100], [true, true, 227120]);
 (function () { var big = O.precoParaM2(oPm.configSnapshot, cabPm, Object.assign({}, itPm, { inputs: Object.assign({}, itPm.inputs, { quantidade: 12345.67 }) }), 149.99); mesmo('12.345,67 m² a 149,99: total exato nos centavos (1.851.727,04) e R$/m² exato', [Math.round(big.resultado.precoFinal * 100) / 100, Math.abs(big.precoM2 - 149.99) <= 0.0005], [1851727.04, true]); })();
+// Codex (PR #2): m² fracionado onde alvo × m² cai em meio centavo — o preço encurtado deve exibir os MESMOS centavos da solução exata
+(function () {
+  var itFr = Object.assign({}, itPm, { inputs: Object.assign({}, itPm.inputs, { quantidade: 1.25 }) });
+  var exato = O.calcularItem(oPm.configSnapshot, cabPm, { id: 'e', origem: 'importacao', inputs: Object.assign({}, itFr.inputs, { precoBase: 140.02 / 1.18 }) });   // à vista, DIFAL 16% + FCP 2%, frete 0
+  var fr = O.precoParaM2(oPm.configSnapshot, cabPm, itFr, 140.02);
+  var c2 = function (v) { return Math.round(v * 100) / 100; };
+  mesmo('1,25 m² a 140,02: R$/m² e total exibidos iguais aos da solução exata (sem trocar centavo)', [c2(fr.precoM2), c2(fr.resultado.precoFinal) === c2(exato.resultado.precoFinal), String(fr.preco).length <= 14], [140.02, true, true]);
+  // e um caso onde nenhuma precisão curta serve continua convergindo (preço cheio)
+  var fr2 = O.precoParaM2(oPm.configSnapshot, cabPm, Object.assign({}, itPm, { inputs: Object.assign({}, itPm.inputs, { quantidade: 0.33, frete: 7 }) }), 99.99);
+  mesmo('0,33 m² com frete 7 a 99,99: converge e exibe 99,99 por m²', [c2(fr2.precoM2), c2(fr2.resultado.precoFinal)], [99.99, c2(99.99 * 0.33)]);
+})();
 var viaCalc = O.calcularItem(oPm.configSnapshot, cabPm, { id: 'x', origem: 'importacao', inputs: Object.assign({}, itPm.inputs, { precoBase: pm.preco }) });
 igual('resultado idêntico ao de calcularItem com esse preço (mesmos campos da consolidação)', O.compararResultados(pm.resultado, viaCalc.resultado, 'importacao').length, 0);
 mesmo('demais entradas preservadas (UF, quantidade, frete, pagamento) e item original intacto', [pm.inputs.uf, pm.inputs.quantidade, pm.inputs.frete, pm.inputs.pagamento, itPm.inputs.precoBase], [itPm.inputs.uf, itPm.inputs.quantidade, itPm.inputs.frete, itPm.inputs.pagamento, itPm.inputs.precoBase]);
