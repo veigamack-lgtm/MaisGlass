@@ -25,10 +25,10 @@ depois em Vercel → Domains).
 | `api/` | Funções da Vercel (Node). `api/_lib/app.js` tem todas as rotas e regras; `repositorio.js` fala com o Neon (e tem uma versão em memória para testes); `auth.js` senhas/sessões; `validar.js` usa os motores. |
 | `vercel.json` | Região das funções em São Paulo (`gru1`, ao lado do banco), instalação só das dependências de produção, cabeçalhos de segurança. |
 | `package.json` | Dependência de produção: `@neondatabase/serverless`. Dependências de teste: jsdom, pg, playwright. |
-| `test/test.js` | Motor (planilha, memorial da contadora, orçamentos): `node test/test.js` — 645 verificações, sem dependências. |
+| `test/test.js` | Motor (planilha, memorial da contadora, orçamentos): `node test/test.js` — 664 verificações, sem dependências. |
 | `test/termos.js` | Textos da proposta: cláusulas, complementos automáticos (pagamento, frete, prazo, validade, perda, dólar, FCP), numeração, textos do administrador, validação — 52 verificações. |
 | `test/api.js` | API contra o servidor local em memória: `node test/api.js` — 79 verificações. Com `PG_TESTE_URL=postgres://…` roda o mesmo contra um Postgres de verdade (usa `pg`; **nunca** aponte para o banco de produção — ele apaga as tabelas). |
-| `test/ui.js` | Interface em jsdom com o servidor local: duas "máquinas", conflitos, exclusão, fila sem rede, migração, usuários, cópia de segurança, emissão/proposta antiga, material cadastrado depois do orçamento, custo de operação, pareceres 7 e 8 (Salvar agora, sincronização durante a edição, padrão das calculadoras, digitar sem sair do campo, trocar de aba antes do autosave) — 294 verificações. |
+| `test/ui.js` | Interface em jsdom com o servidor local: duas "máquinas", conflitos, exclusão, fila sem rede, migração, usuários, cópia de segurança, emissão/proposta antiga, material cadastrado depois do orçamento, custo de operação, pareceres 7 e 8 (Salvar agora, sincronização durante a edição, padrão das calculadoras, digitar sem sair do campo, trocar de aba antes do autosave), preço por m² editável — 309 verificações. |
 | `test/browser/` | Playwright (Chromium) assert-based, cada script sobe o próprio servidor local — `node test/browser/todos.js`; ver `test/browser/README.md`. |
 | `test/servidor-local.js` | Servidor local: arquivos + a mesma API com banco em memória. `node test/servidor-local.js` → http://localhost:8765 (admin@maisglass.local / admin12345). |
 
@@ -333,6 +333,18 @@ Compõe um orçamento para um cliente com itens das três calculadoras. Regras
   somam; IRPJ/CSLL **real = 34% × max(0, lucro consolidado)** (prejuízo de um
   item compensa outro; custos internos dedutíveis — premissa); **presumido =
   soma dos itens** (base é a receita). Margens dos totais ("n/a" sem receita).
+- **Preço por m² editável na tabela de itens** (nov/2026): a coluna R$/m²
+  (total ÷ m², o unitário da proposta) é um campo; ao alterar,
+  `orcamento.js → precoParaM2(config, cabecalho, item, alvo)` acha o preço de
+  calculadora equivalente (`precoBase` na importação; `precoVenda` na
+  revenda/nacional — o preço final é linear nele; conferido por secante) e
+  devolve o item recalculado por `calcularItem` com a configuração **congelada**
+  e o cabeçalho — o mesmo que "Carregar → mudar o preço → Substituir item".
+  O preço é gravado com o menor número de casas que mantém R$/m² e total
+  exatos nos centavos. Totais, DRE, custo de operação, gráfico e proposta
+  acompanham; o status mostra "R$/m² X → Y (preço base na calculadora Z)";
+  valor inválido ou abaixo do piso (frete/acréscimos por m²) não altera nada;
+  emitido → travado. Embaixo do campo aparece o preço de calculadora.
 - **Custos internos** (frete contratado, transporte próprio, instalação,
   comissão fixa ou % do total, outros): só na DRE, sem crédito. Aviso quando há
   frete cobrado na NF de um item e custo interno de transporte (o motor já

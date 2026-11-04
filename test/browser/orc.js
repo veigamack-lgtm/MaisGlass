@@ -77,7 +77,7 @@ executar(async () => {
   contem('item substituído', await t(p, 'r-addOrcInfo'), 'Item substituído');
   await aba(p, 'orcamentos');
   igual('itens após substituir (3 + total)', await p.locator('#orc-itens table.itens tbody tr').count(), 4);
-  igual('R$/m² do item 2 = 150', (await p.textContent('#orc-itens tbody tr:nth-child(2) td:nth-child(5)')).trim(), 'R$ 150,00');
+  igual('R$/m² do item 2 = 150 (campo editável) e preço de venda embaixo', [await p.inputValue('#orc-itens tbody tr:nth-child(2) td:nth-child(5) input.preco'), (await p.textContent('#orc-itens tbody tr:nth-child(2) td:nth-child(5) small')).trim()], ['150.00', 'venda R$ 150,00']);
 
   // 10. impressão isola a proposta
   await p.emulateMedia({ media: 'print' });
