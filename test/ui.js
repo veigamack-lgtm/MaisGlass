@@ -1032,6 +1032,44 @@ await (async function () {   // achado 2: change → trocar de aba antes do auto
   await amb.fechar();
 })();
 
+console.log('\n--- Preço por m² editável na tabela de itens do orçamento');
+await (async function () {
+  var amb = await ambiente();
+  var a = await novaAba(amb);
+  function num(txt) { return Number(String(txt).replace(/[^\d,-]/g, '').replace(',', '.')); }
+  function precoInput(idx) { return a.doc.querySelectorAll('#orc-itens table.itens tbody tr')[idx].querySelector('input.preco'); }
+  a.novoOrc('Preço editável', 'RJ'); a.aba('calc'); a.click('in-addOrc'); a.aba('orcamentos');
+  var o0 = a.orcAberto(), totalAntes = num(a.texto('oo-total')), liqAntes = num(a.texto('oo-liqReal'));
+  igual('item do cenário da planilha: 165,20/m² na tabela e base 140 embaixo', [precoInput(0).value, /base R\$ 140,00/.test(a.doc.querySelector('#orc-itens tbody tr td.num small').textContent)], ['165.20', true]);
+  // 1. altera para 170,00 → item recalculado com a configuração congelada, totais/DRE/proposta acompanham, gravado
+  precoInput(0).value = '170'; precoInput(0).dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  var o1 = a.orcAberto();
+  aprox('preço base do item virou ≈ 144,0678', Number(o1.itens[0].inputs.precoBase), 144.0678, 0.00005);
+  aprox('total ao cliente = 170 × 1.336 = 227.120,00 (±0,01)', num(a.texto('oo-total')), 227120, 0.01);
+  aprox('resultado gravado bate com o motor (precoFinal)', o1.itens[0].resultado.precoFinal, 227120, 0.01);
+  ok(num(a.texto('oo-liqReal')) > liqAntes && totalAntes < 227120, 'lucro líquido subiu junto com o preço');
+  ok(/R\$\/m² ao cliente R\$ 165,20 → R\$ 170,00/.test(a.texto('orcStatus')) && /preço base na calculadora R\$ 144,07/.test(a.texto('orcStatus')), 'status explica a troca: ' + a.texto('orcStatus').slice(0, 120));
+  ok(/170,00/.test(a.texto('proposta')), 'proposta impressa mostra o unitário novo (170,00)');
+  igual('tabela mostra 170,00 e base 144,07', [precoInput(0).value, /base R\$ 144,07/.test(a.doc.querySelector('#orc-itens tbody tr td.num small').textContent)], ['170.00', true]);
+  igual('item passa na validação (mesmas identidades da DRE)', O.validarOrcamento(o1).length, 0);
+  igual('configuração congelada e dólar não mudaram', [o1.configSnapshot.dolar, o1.premissas.irpjCsllReal], [o0.configSnapshot.dolar, o0.premissas.irpjCsllReal]);
+  await a.sync();
+  var srv = (await a.servidor()).find(function (x) { return x.dados.cliente.nome === 'Preço editável'; });
+  aprox('servidor aceitou o item recalculado', srv.dados.itens[0].resultado.precoFinal, 227120, 0.01);
+  // 2. valor inválido → nada muda, status explica, tabela volta ao valor anterior
+  precoInput(0).value = '0'; precoInput(0).dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  ok(/Preço não alterado/.test(a.texto('orcStatus')) && precoInput(0).value === '170.00' && Math.abs(num(a.texto('oo-total')) - 227120) < 0.01, 'zero: recusado e tabela volta a 170,00: ' + a.texto('orcStatus').slice(0, 80));
+  // 3. "Carregar" leva o preço novo para a calculadora (coerência com o fluxo antigo)
+  a.botaoItem(0, 'Carregar').click();
+  aprox('calculadora abre com o preço base ≈ 144,0678', Number(a.$('in-precoBase').value), 144.0678, 0.00005);
+  a.aba('orcamentos');
+  // 4. emitido → campo travado
+  a.set('o-status', 'enviado', 'change');
+  ok(precoInput(0).disabled, 'proposta emitida: R$/m² da tabela fica travado');
+  igual('sem erros de página', a.errosPagina, []);
+  await amb.fechar();
+})();
+
 fim();
 })().catch(function (e) { console.error('ERRO NO SCRIPT:', e && e.stack || e); process.exit(1); });
 

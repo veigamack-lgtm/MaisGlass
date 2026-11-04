@@ -1045,5 +1045,46 @@ igual('aplicaCustoOperacao exportado', [O.aplicaCustoOperacao(oOp), O.aplicaCust
 // item adicionado a um orçamento continua sem custo de operação (o rateio é do orçamento, não do item)
 igual('resultado do item não carrega custo de operação (identidades da DRE do item preservadas)', O.validarResultadoItem(itOpImp.resultado, 'importacao', 'item').length === 0 && itOpImp.resultado.dre.real.custoOperacao === undefined, true);
 
+/* =====================================================================
+ * Preço por m² editável no orçamento (nov/2026): precoParaM2 acha o preço de calculadora que dá o R$/m² ao cliente pedido
+ * e devolve o item recalculado com a configuração congelada — idêntico a "Carregar → mudar o preço → Substituir item".
+ * ===================================================================== */
+console.log('\n== Preço por m² editável (precoParaM2) ==');
+var oPm = orcBase('RJ'), cabPm = O.cabecalhoDe(oPm);
+var itPm = addItem(oPm, 'importacao', inpImp, 'Laminado 4+4');
+aprox('cenário da planilha com FCP: R$ 165,20/m² ao cliente', itPm.resultado.precoVendaM2, 165.20, 0.005);
+var pm = O.precoParaM2(oPm.configSnapshot, cabPm, itPm, 170);
+mesmo('importação: campo precoBase, R$/m² obtido = 170,00 (±0,005)', [pm.campo, Math.abs(pm.precoM2 - 170) <= 0.005, Math.abs(pm.resultado.precoFinal / 1336 - 170) <= 0.005], ['precoBase', true, true]);
+aprox('preço base equivalente ≈ 144,0678 (= 170 ÷ 1,18: DIFAL 16% + FCP 2% do RJ, à vista, sem frete)', pm.preco, 144.0678, 0.00005);
+mesmo('preço com o menor nº de casas que mantém R$/m² E total exatos nos centavos (total = 170 × 1.336 = 227.120,00)', [Math.abs(pm.resultado.precoFinal - 227120) <= 0.004, String(pm.preco).replace(/^.*\./, '').length <= 10, Math.round(pm.resultado.precoFinal * 100) / 100], [true, true, 227120]);
+(function () { var big = O.precoParaM2(oPm.configSnapshot, cabPm, Object.assign({}, itPm, { inputs: Object.assign({}, itPm.inputs, { quantidade: 12345.67 }) }), 149.99); mesmo('12.345,67 m² a 149,99: total exato nos centavos (1.851.727,04) e R$/m² exato', [Math.round(big.resultado.precoFinal * 100) / 100, Math.abs(big.precoM2 - 149.99) <= 0.0005], [1851727.04, true]); })();
+var viaCalc = O.calcularItem(oPm.configSnapshot, cabPm, { id: 'x', origem: 'importacao', inputs: Object.assign({}, itPm.inputs, { precoBase: pm.preco }) });
+igual('resultado idêntico ao de calcularItem com esse preço (mesmos campos da consolidação)', O.compararResultados(pm.resultado, viaCalc.resultado, 'importacao').length, 0);
+mesmo('demais entradas preservadas (UF, quantidade, frete, pagamento) e item original intacto', [pm.inputs.uf, pm.inputs.quantidade, pm.inputs.frete, pm.inputs.pagamento, itPm.inputs.precoBase], [itPm.inputs.uf, itPm.inputs.quantidade, itPm.inputs.frete, itPm.inputs.pagamento, itPm.inputs.precoBase]);
+igual('item substituído passa na validação do orçamento', (function () { var oo = JSON.parse(JSON.stringify(oPm)); oo.itens[0].inputs = pm.inputs; oo.itens[0].resultado = pm.resultado; oo.itens[0].avisos = pm.avisos; return O.validarOrcamento(oo).length; })(), 0);
+var pmBaixo = O.precoParaM2(oPm.configSnapshot, cabPm, itPm, 100);
+aprox('alvo abaixo do atual também resolve (100,00)', pmBaixo.precoM2, 100, 0.005);
+// revenda (preço fechado): o R$/m² ao cliente é o próprio preço de venda quando não há frete nem cartão
+var itRevPm = addItem(oPm, 'revenda', inpRev, 'Revenda');
+var pmRev = O.precoParaM2(oPm.configSnapshot, cabPm, itRevPm, 160);
+mesmo('revenda fechado à vista: precoVenda = 160 exato', [pmRev.campo, pmRev.preco, Math.abs(pmRev.precoM2 - 160) <= 0.005], ['precoVenda', 160, true]);
+// nacional com IPI/DIFAL/FCP por fora (gross-up): continua linear e converge
+var itNacPm = addItem(oPm, 'nacional', Object.assign({}, inpNac, { difalIncluso: false }), 'Nacional por fora');
+var pmNac = O.precoParaM2(oPm.configSnapshot, cabPm, itNacPm, 200);
+mesmo('nacional por fora: converge em 200,00 (±0,005) com precoVenda < 200', [Math.abs(pmNac.precoM2 - 200) <= 0.005, pmNac.preco < 200, pmNac.preco > 0], [true, true, true]);
+igual('nacional: resultado idêntico ao de calcularItem', O.compararResultados(pmNac.resultado, O.calcularItem(oPm.configSnapshot, cabPm, { id: 'y', origem: 'nacional', inputs: Object.assign({}, itNacPm.inputs, { precoVenda: pmNac.preco }) }).resultado, 'nacional').length, 0);
+// parcelado no cartão: taxa proporcional, continua exato
+var oParc = orcBase('RJ'); oParc.condicoes.pagamento = 'Parcelado'; oParc.condicoes.bandeira = 'Amex'; oParc.condicoes.parcelas = 6;
+var itParc = addItem(oParc, 'importacao', inpImp, 'Parcelado');
+var pmParc = O.precoParaM2(oParc.configSnapshot, O.cabecalhoDe(oParc), itParc, 180);
+aprox('parcelado 6x Amex: 180,00 ao cliente (±0,005)', pmParc.precoM2, 180, 0.005);
+// erros
+lanca('alvo zero é recusado', function () { O.precoParaM2(oPm.configSnapshot, cabPm, itPm, 0); }, /maior que zero/);
+lanca('alvo texto inválido é recusado', function () { O.precoParaM2(oPm.configSnapshot, cabPm, itPm, 'abc'); }, /maior que zero/);
+lanca('alvo abaixo do piso (frete por m²) é recusado com o piso na mensagem', function () { O.precoParaM2(oPm.configSnapshot, cabPm, Object.assign({}, itPm, { inputs: Object.assign({}, itPm.inputs, { frete: 5000 }) }), 1); }, /abaixo do mínimo.*R\$ 4,42/);
+lanca('item sem entradas é recusado', function () { O.precoParaM2(oPm.configSnapshot, cabPm, { id: 'z', origem: 'importacao' }, 100); }, /Item inválido/);
+lanca('quantidade zero é recusada', function () { O.precoParaM2(oPm.configSnapshot, cabPm, Object.assign({}, itPm, { inputs: Object.assign({}, itPm.inputs, { quantidade: 0 }) }), 100); }, /Quantidade/);
+igual('CAMPO_PRECO exportado', JSON.stringify(O.CAMPO_PRECO), '{"importacao":"precoBase","revenda":"precoVenda","nacional":"precoVenda"}');
+
 console.log('\n' + (falhas ? falhas + ' FALHA(S)' : 'Todos os testes passaram.'));
 process.exit(falhas ? 1 : 0);
