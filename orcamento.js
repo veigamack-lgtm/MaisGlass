@@ -208,9 +208,11 @@
    * configuração CONGELADA — exatamente o que "Carregar → alterar preço → Substituir item" produziria. O preço final é
    * linear no preço de calculadora (taxa do cartão, DIFAL, FCP, IPI e gross-up são proporcionais ao subtotal), então
    * duas avaliações resolvem; ainda assim confere e refina por secante (até 10 passos) e exige |obtido − alvo| ≤ TOL.
-   * O preço é gravado com o MENOR número de casas (2 a 10) que mantém o R$/m² e o total ao cliente exatos nos centavos
-   * (|R$/m² − alvo| ≤ 0,0005 e |total − alvo × m²| ≤ 0,004): o cliente vê exatamente o que foi digitado e o preço na
-   * calculadora fica legível. Lança se o alvo for inválido, se o preço necessário for negativo (alvo abaixo do que
+   * O preço é gravado com o MENOR número de casas (2 a 10) cujo resultado mostra os MESMOS centavos da solução exata,
+   * tanto no R$/m² (= o alvo digitado) quanto no total ao cliente — comparação dos valores arredondados a centavo, não
+   * só tolerância numérica (parecer automático do Codex no PR #2: com m² fracionado uma tolerância absoluta podia
+   * aceitar um total que arredonda para outro centavo). Assim o cliente vê exatamente o que foi digitado e o preço na
+   * calculadora fica legível; se nenhuma precisão curta preservar os centavos, vale a solução exata. Lança se o alvo for inválido, se o preço necessário for negativo (alvo abaixo do que
    * frete/acréscimos já custam por m²) ou se não convergir. Não altera o item recebido.
    * Devolve { campo, preco, precoM2, inputs, resultado, avisos }. */
   var CAMPO_PRECO = { importacao: 'precoBase', revenda: 'precoVenda', nacional: 'precoVenda' };
@@ -238,11 +240,12 @@
       p0 = p1; a = b; p1 = p; b = res;
     }
     if (Math.abs(res.m2 - alvo) > TOL) throw new Error('Não foi possível ajustar o preço deste item (diferença de ' + CALC.fmtBRL(res.m2 - alvo) + ' por m²).');
-    // menor número de casas que preserva os centavos do R$/m² E do total ao cliente (alvo × m²)
-    var totalAlvo = alvo * qtd;
+    // menor número de casas cujo resultado exibe os mesmos centavos da solução exata (R$/m² e total ao cliente)
+    function cents(v) { return Math.round(v * 100); }
+    var centsM2 = cents(res.m2), centsTotal = cents(res.r.resultado.precoFinal);
     for (var casas = 2; casas <= 10; casas++) {
       var f = Math.pow(10, casas), pr = Math.round(p * f) / f, rr = avaliar(pr);
-      if (Math.abs(rr.m2 - alvo) <= 0.0005 && Math.abs(rr.r.resultado.precoFinal - totalAlvo) <= 0.004) { p = pr; res = rr; break; }
+      if (cents(rr.m2) === centsM2 && cents(rr.r.resultado.precoFinal) === centsTotal && Math.abs(rr.m2 - alvo) <= 0.0005) { p = pr; res = rr; break; }
     }
     return { campo: campo, preco: p, precoM2: res.m2, inputs: res.r.inputs, resultado: res.r.resultado, avisos: res.r.avisos };
   }
