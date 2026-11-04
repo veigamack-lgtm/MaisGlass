@@ -1860,12 +1860,19 @@
         btn('Duplicar', function () { duplicarItem(it); }),
         btn('Remover', function () { removerItem(it); }, 'danger')
       ]);
+      // R$/m² ao cliente editável (nov/2026): alterar recalcula o item com a configuração congelada (orcamento.js → precoParaM2)
+      var campoPreco = ORC.CAMPO_PRECO[it.origem], precoCalc = Number(it.inputs && it.inputs[campoPreco]);
+      var precoInp = el('input', { type: 'number', step: '0.01', min: '0', class: 'preco', value: r.calculado ? (Math.round(r.precoM2 * 100) / 100).toFixed(2) : '' });
+      precoInp.disabled = travado || !r.calculado;
+      precoInp.title = 'Preço ao cliente por m² (total ÷ m²). Alterar recalcula este item com a configuração congelada do orçamento — o mesmo que Carregar → mudar o preço → Substituir item.';
+      precoInp.addEventListener('change', function () { alterarPrecoItem(it, precoInp.value); });
+      var precoCel = el('td', { class: 'num' }, [precoInp, el('small', { text: (it.origem === 'importacao' ? 'base ' : 'venda ') + (isFinite(precoCalc) ? brl(precoCalc) : '—'), style: 'display:block;color:var(--muted)', title: 'Preço digitado na calculadora (antes de cartão, DIFAL/FCP, IPI e frete)' })]);
       return el('tr', { class: r.lucro < 0 ? 'neg' : '' }, [
         el('td', { text: String(idx + 1) }),
         el('td', {}, [el('span', { class: 'tag ' + ORIGEM_CLASSE[it.origem], text: ORIGEM_ROTULO[it.origem] })]),
         descCel,
         el('td', { class: 'num', text: numFmt(r.quantidade || 0, 2) }),
-        el('td', { class: 'num', text: brl(r.precoM2 || 0) }),
+        precoCel,
         el('td', { class: 'num', text: brl(r.totalCliente || 0) }),
         el('td', { class: 'num', text: brl(r.custo || 0) }),
         el('td', { class: 'num lucro', text: brl(r.lucro || 0) }),
@@ -1881,6 +1888,19 @@
       el('thead', {}, [el('tr', {}, [['#', ''], ['Origem', ''], ['Descrição', ''], ['m²', 'num'], ['R$/m²', 'num'], ['Total ao cliente', 'num'], ['Custo', 'num'], ['Lucro', 'num'], ['Margem', 'num'], ['', '']].map(function (h) { return el('th', { text: h[0], class: h[1] }); }))]),
       el('tbody', {}, linhas)
     ]));
+  }
+  /* Preço ao cliente por m² digitado na tabela: acha o preço de calculadora equivalente e substitui o item recalculado
+   * (configuração congelada, cabeçalho do orçamento). Erro → nada muda e a tabela volta ao valor anterior. */
+  function alterarPrecoItem(it, valor) {
+    if (!orc || orcTravado()) return;
+    var r;
+    try { r = ORC.precoParaM2(orc.configSnapshot, ORC.cabecalhoDe(orc), it, valor === '' ? NaN : Number(valor)); }
+    catch (e) { orcStatus('Preço não alterado — ' + e.message, 'err'); renderOrc(); return; }
+    var antes = it.resultado ? it.resultado.precoVendaM2 : null;
+    it.inputs = r.inputs; it.resultado = r.resultado; it.avisos = r.avisos; it.calculadoEm = new Date().toISOString();
+    if (itemEmEdicao && itemEmEdicao.itemId === it.id) itemEmEdicao = null;   // a cópia carregada na calculadora ficou velha
+    renderOrc(); atualizarBotoesAdd();
+    if (salvarOrcAtual()) orcStatus('Item "' + (it.descricao || ORIGEM_ROTULO[it.origem]) + '": R$/m² ao cliente ' + (antes !== null ? brl(antes) + ' → ' : '') + brl(r.precoM2) + ' (' + (it.origem === 'importacao' ? 'preço base' : 'preço de venda') + ' na calculadora ' + brl(r.preco) + ') — totais, DRE e proposta recalculados.', 'ok');
   }
   function moverItem(idx, delta) {
     var j = idx + delta; if (j < 0 || j >= orc.itens.length) return;

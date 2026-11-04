@@ -6,6 +6,7 @@
  *
  *   novoOrcamento(config, dados)               → orçamento vazio com premissas e config CONGELADAS
  *   calcularItem(config, cabecalho, item)      → { inputs, resultado, avisos } (cabeçalho manda em UF/destinatário/pagamento)
+ *   precoParaM2(config, cabecalho, item, alvo) → item recalculado com o preço de calculadora que dá `alvo` R$/m² ao cliente
  *   adaptarDre(origem, resultado)              → DRE do item numa convenção única (deduções cheias; CMV líquido dos créditos)
  *   consolidar(orcamento)                      → totais, DRE consolidada, composição, avisos — só com o que está no orçamento
  *                                                (inclui o custo de operação: taxa R$/m² do configSnapshot × m² dos itens, se orcamento.custoOperacao.aplicar)
@@ -199,6 +200,51 @@
       r = CALC.calcularRevenda(config, inputs);
     }
     return { inputs: inputs, resultado: r, avisos: avisos };
+  }
+
+  /* ---------- preço do item a partir do R$/m² ao cliente (edição direta no orçamento, nov/2026) ----------
+   * Acha o preço de calculadora (precoBase na importação direta; precoVenda na revenda/nacional) que faz o preço final ao
+   * cliente por m² (precoFinal ÷ quantidade) ser igual ao alvo, e devolve o item recalculado por calcularItem() com a
+   * configuração CONGELADA — exatamente o que "Carregar → alterar preço → Substituir item" produziria. O preço final é
+   * linear no preço de calculadora (taxa do cartão, DIFAL, FCP, IPI e gross-up são proporcionais ao subtotal), então
+   * duas avaliações resolvem; ainda assim confere e refina por secante (até 10 passos) e exige |obtido − alvo| ≤ TOL.
+   * O preço é gravado com o MENOR número de casas (2 a 10) que mantém o R$/m² e o total ao cliente exatos nos centavos
+   * (|R$/m² − alvo| ≤ 0,0005 e |total − alvo × m²| ≤ 0,004): o cliente vê exatamente o que foi digitado e o preço na
+   * calculadora fica legível. Lança se o alvo for inválido, se o preço necessário for negativo (alvo abaixo do que
+   * frete/acréscimos já custam por m²) ou se não convergir. Não altera o item recebido.
+   * Devolve { campo, preco, precoM2, inputs, resultado, avisos }. */
+  var CAMPO_PRECO = { importacao: 'precoBase', revenda: 'precoVenda', nacional: 'precoVenda' };
+  function precoParaM2(config, cabecalho, item, alvoM2) {
+    if (!isObj(item) || ORIGENS.indexOf(item.origem) < 0 || !isObj(item.inputs)) throw new Error('Item inválido.');
+    var alvo = numeroCusto(alvoM2);
+    if (!isFin(alvo) || alvo <= 0) throw new Error('Informe um preço por m² maior que zero.');
+    var campo = CAMPO_PRECO[item.origem];
+    var qtd = numeroCusto(item.inputs.quantidade);
+    if (!isFin(qtd) || qtd <= 0) throw new Error('Quantidade do item inválida.');
+    function avaliar(p) { var it = clone(item); it.inputs[campo] = p; var r = calcularItem(config, cabecalho, it); return { r: r, m2: r.resultado.precoFinal / qtd }; }
+    var p0 = numeroCusto(item.inputs[campo]); if (!isFin(p0) || p0 < 0) p0 = 0;
+    var p1 = p0 > 0 ? p0 * 2 : 100;
+    var a = avaliar(p0), b = avaliar(p1), p = p0, res = a;
+    for (var i = 0; i < 10; i++) {
+      var inclinacao = (b.m2 - a.m2) / (p1 - p0);
+      if (!(inclinacao > 0)) throw new Error('Não foi possível ajustar o preço deste item.');
+      p = p0 + (alvo - a.m2) / inclinacao;
+      if (p < 0) {
+        var piso = avaliar(0).m2;
+        throw new Error('Preço por m² abaixo do mínimo deste item: só frete e acréscimos já somam ' + CALC.fmtBRL(piso) + ' por m².');
+      }
+      res = avaliar(p);
+      if (Math.abs(res.m2 - alvo) <= 1e-9) break;
+      p0 = p1; a = b; p1 = p; b = res;
+    }
+    if (Math.abs(res.m2 - alvo) > TOL) throw new Error('Não foi possível ajustar o preço deste item (diferença de ' + CALC.fmtBRL(res.m2 - alvo) + ' por m²).');
+    // menor número de casas que preserva os centavos do R$/m² E do total ao cliente (alvo × m²)
+    var totalAlvo = alvo * qtd;
+    for (var casas = 2; casas <= 10; casas++) {
+      var f = Math.pow(10, casas), pr = Math.round(p * f) / f, rr = avaliar(pr);
+      if (Math.abs(rr.m2 - alvo) <= 0.0005 && Math.abs(rr.r.resultado.precoFinal - totalAlvo) <= 0.004) { p = pr; res = rr; break; }
+    }
+    return { campo: campo, preco: p, precoM2: res.m2, inputs: res.r.inputs, resultado: res.r.resultado, avisos: res.r.avisos };
   }
 
   /* ---------- DRE do item numa convenção única ----------
@@ -550,6 +596,6 @@
     divergenciasCabecalho: divergenciasCabecalho, classificarAliquotaSaida: classificarAliquotaSaida, calcularItem: calcularItem, adaptarDre: adaptarDre, consolidar: consolidar,
     validarOrcamento: validarOrcamento, validarResultadoItem: validarResultadoItem, compararResultados: compararResultados, conferirResultados: conferirResultados,
     migrarOrcamento: migrarOrcamento, gerarId: gerarId, aliquotaSaidaAuto: aliquotaSaidaAuto, fcpPendente: fcpPendente, emitido: emitido,
-    dataValida: dataValida, aplicaCustoOperacao: aplicaCustoOperacao
+    dataValida: dataValida, aplicaCustoOperacao: aplicaCustoOperacao, precoParaM2: precoParaM2, CAMPO_PRECO: CAMPO_PRECO
   };
 })(typeof module !== 'undefined' ? module.exports : window);

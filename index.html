@@ -222,6 +222,7 @@
   table.itens td.num, table.itens th.num, table.custos td.num, table.custos th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   table.itens td.acoes { white-space: nowrap; } table.itens td.acoes .btn { margin-right: 4px; }
   table.itens input.desc { min-width: 200px; }
+  table.itens input.preco { width: 108px; min-width: 96px; text-align: right; font-variant-numeric: tabular-nums; }
   table.custos td:first-child select { min-width: 190px; } table.custos td:nth-child(3) select { min-width: 160px; } table.custos input[type=text] { min-width: 160px; } table.custos input[type=number] { min-width: 90px; }
   table.itens tr.neg td.lucro { color: var(--danger); }
   table.itens tr.tot td { font-weight: 700; border-top: 2px solid var(--ink); }
@@ -712,7 +713,7 @@
 
         <div class="card" style="margin-top:20px">
           <h2>Itens do orçamento</h2>
-          <p class="hint">Adicione itens pelo botão <b>"Adicionar ao orçamento"</b> em cada calculadora. Os campos do cliente (UF, destinatário, pagamento) vêm do cabeçalho e valem para todos os itens. "Carregar" abre a calculadora de origem com as entradas do item para ajustar e substituir.</p>
+          <p class="hint">Adicione itens pelo botão <b>"Adicionar ao orçamento"</b> em cada calculadora. Os campos do cliente (UF, destinatário, pagamento) vêm do cabeçalho e valem para todos os itens. "Carregar" abre a calculadora de origem com as entradas do item para ajustar e substituir. O <b>R$/m² ao cliente</b> pode ser alterado direto na tabela: o item é recalculado na hora com a configuração congelada (totais, DRE e proposta acompanham); embaixo aparece o preço equivalente na calculadora.</p>
           <div class="table-wrap" id="orc-itens"></div>
           <p class="hint" id="orc-itensInfo"></p>
         </div>
