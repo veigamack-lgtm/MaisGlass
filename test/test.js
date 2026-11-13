@@ -4,6 +4,9 @@
 'use strict';
 var path = require('path');
 var D = require(path.join(__dirname, '..', 'defaults.js')).GM_DEFAULTS;
+// Este conjunto fixa as referências históricas v4, mantidas para orçamentos
+// congelados. O motor atual v5 tem cobertura própria em auditoria.js.
+D.config.versao = 4;
 var C = require(path.join(__dirname, '..', 'calc.js')).GM_CALC;
 
 var falhas = 0;

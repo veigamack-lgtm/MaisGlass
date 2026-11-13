@@ -10,6 +10,34 @@ de orçamentos compartilhada entre os computadores.
 Endereço: **https://mais-glass.vercel.app** (domínio próprio pode ser apontado
 depois em Vercel → Domains).
 
+## Auditoria de novembro/2026 — motor 2.0 / configuração v5
+
+As três calculadoras e os novos orçamentos usam **lucro presumido**. A perda é
+percentual da chapa comprada: compra = venda ÷ (1 − perda). Créditos recuperáveis
+de ICMS/IPI reduzem o CMV uma única vez; PIS/COFINS são cumulativos, sem crédito
+na aquisição. Saldo credor é ativo a compensar, não recebimento em caixa.
+
+Valores monetários são arredondados por item e as linhas da DRE fecham em
+centavos. Quantidades e taxas de rateio mantêm precisão. IRPJ/CSLL conservam o
+critério incremental configurado (3,08% no cenário 8%/12%, 25%/9%). Custos
+operacionais e internos reduzem o resultado, sem reduzir essa base presumida.
+
+Parcelamento preserva o lucro líquido em reais do preço à vista: cobre cartão,
+tributos adicionais e crescimento de custos internos percentuais. Arredondamentos
+podem deixar centavos a mais, nunca a menos, para a empresa. Custos fixos não
+mudam com o pagamento. Frete e bases configuradas mantêm o critério anterior.
+
+Orçamentos congelados até v4 conservam o motor histórico e a apresentação dos
+dois cenários. A atualização depende de **Recalcular com a configuração atual**;
+propostas emitidas continuam exigindo nova revisão. As fórmulas da planilha
+original descritas adiante são referências históricas, não as regras da v5.
+
+`npm test` inclui `test/auditoria.js`: valores independentes do exemplo auditado,
+combinações fiscais, créditos, prejuízo, saldo credor, cartão com comissão,
+consolidação, edição de preço e preservação histórica. Testes de interface
+conferem o regime exibido, os totais da proposta e a gravação na API.
+A DRE é gerencial por pedido; não substitui escrituração ou apuração do período.
+
 ## Arquivos
 
 | Arquivo | Função |
@@ -19,7 +47,7 @@ depois em Vercel → Domains).
 | `termos.js` | Textos da proposta comercial (referência, introdução, normas, OBJETO e cláusulas 1–13, encerramento), complementos automáticos a partir do orçamento e validação dos campos da proposta. Usado pelo app e pelo servidor. Não participa de nenhum cálculo. |
 | `calc.js` | Motor de cálculo puro (sem DOM). Cada fórmula cita a célula da planilha de origem. Também o rateio do custo de operação (`resumoOperacao`, `custoOperacaoDe`, `dreComOperacao`). |
 | `defaults.js` | Valores padrão: produtos, classes fiscais + NCM, despesas nacionais, entreposto, cartão, DIFAL, custo de operação (vazio). É o "Restaurar padrão". |
-| `orcamento.js` | Motor do módulo Orçamentos (puro): consolida itens das três calculadoras, custos internos, DRE real × presumido. Usado também pelo servidor para validar. |
+| `orcamento.js` | Motor do módulo Orçamentos (puro): consolida itens das três calculadoras, custos internos, DRE do presumido e cenários históricos. Usado também pelo servidor para validar. |
 | `app.js` | Liga interface ↔ motores; login; cache local; exportar/importar JSON; aba Orçamentos, proposta impressa, aba Custo de operação, aba Usuários. |
 | `nuvem.js` | Sincronização com o servidor: fila de envio, recebimento periódico, conflito por versão (409/410), migração de orçamentos locais. |
 | `api/` | Funções da Vercel (Node). `api/_lib/app.js` tem todas as rotas e regras; `repositorio.js` fala com o Neon (e tem uma versão em memória para testes); `auth.js` senhas/sessões; `validar.js` usa os motores. |

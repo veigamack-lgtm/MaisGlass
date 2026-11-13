@@ -405,7 +405,7 @@
           <div class="field"><label>Destinatário<small>Contribuinte comprando para uso próprio/ativo não é coberto</small></label>
             <select id="in-contribuinte"><option value="nao">Consumidor final não contribuinte (construtora, PF, sem IE)</option><option value="sim">Contribuinte que revende/industrializa (com IE)</option></select></div>
           <div class="field stack"><label>Produto</label><select id="in-produto"></select></div>
-          <div class="field"><label>Perda (%)<small>Aproveitamento de corte</small></label><input type="number" id="in-perda" min="0" step="0.5" value="0"></div>
+          <div class="field"><label>Perda (%)<small>Aproveitamento de corte</small></label><input type="number" id="in-perda" min="0" max="99.99" step="0.5" value="0"></div>
           <div class="field"><label>Preço base por m² (R$)</label><input type="number" id="in-precoBase" min="0" step="0.01"></div>
           <div class="field"><label>Quantidade (m²)</label><input type="number" id="in-quantidade" min="0" step="0.01"></div>
           <div class="field"><label>Frete (R$)</label><input type="number" id="in-frete" min="0" step="0.01"></div>
@@ -466,8 +466,8 @@
       </div>
 
       <div class="card" style="margin-top:20px">
-        <h2>DRE da operação — lucro real × lucro presumido <small style="font-weight:400;color:#6b7280">(estimativa gerencial)</small></h2>
-        <p class="hint">Estimativa gerencial — não é apuração. Efeito desta venda nos dois regimes, montado a partir dos mesmos números da calculadora acima (o lucro operacional é o mesmo "Lucro" da planilha). Lucro real: PIS/COFINS líquidos dos créditos da importação e IRPJ/CSLL 34% (alíquota marginal; premissa: empresa acima da faixa do adicional). Presumido: 3,65% sem crédito e IRPJ/CSLL 25% + 9% sobre 8%/12% da receita. A apuração de verdade é do período inteiro — validar com a contadoria.</p>
+        <h2>DRE da operação — lucro presumido <small style="font-weight:400;color:#6b7280">(estimativa gerencial)</small></h2>
+        <p class="hint">Lucro presumido: PIS/COFINS cumulativos sem crédito de compra; os tributos pagos na importação permanecem no custo. IRPJ/CSLL estimados pelo critério incremental configurado. A DRE mostra o resultado econômico do pedido; a apuração fiscal considera o período inteiro.</p>
         <div class="op-toggle"><label><input type="checkbox" id="in-custoOperacao"> Incorporar o custo de operação da fábrica (rateio por m²)</label><span class="hint" id="in-custoOperacaoInfo"></span></div>
         <div class="table-wrap"><table class="dre" id="out-dre"></table></div>
       </div>
@@ -496,7 +496,7 @@
             <div class="field"><label>UF de origem (fornecedor)</label><select id="r-fornecedorUF"></select></div>
             <div class="field"><label>Valor unitário na NF de entrada (R$/m²)<small>Valor dos produtos, ICMS incluso na base</small></label><input type="number" id="r-precoCompra" min="0" step="0.01"></div>
             <div class="field"><label>Quantidade (m²)</label><input type="number" id="r-quantidade" min="0" step="0.01"></div>
-            <div class="field"><label>Perda no beneficiamento (%)<small>Aproveitamento de corte</small></label><input type="number" id="r-perda" min="0" step="0.5" value="0"></div>
+            <div class="field"><label>Perda no beneficiamento (%)<small>Aproveitamento de corte</small></label><input type="number" id="r-perda" min="0" max="99.99" step="0.5" value="0"></div>
             <div class="field"><label>ICMS destacado na entrada (%)<small id="r-icmsCompraSug">Sugerido pela UF de origem; confira na NF do fornecedor</small></label><input type="number" id="r-icmsCompra" min="0" step="0.5"></div>
             <div class="field"><label>IPI destacado na entrada (%)</label><input type="number" id="r-ipi" min="0" step="0.5"></div>
             <div class="field"><label>Natureza da operação<small>Define o tratamento do IPI</small></label>
@@ -547,9 +547,9 @@
             <div class="kv"><span class="k">IPI: crédito na entrada</span><span class="v" id="ro-creditoIPI"></span></div>
             <div class="kv"><span class="k">IPI: débito na saída</span><span class="v" id="ro-ipiVenda"></span></div>
             <div class="kv"><span class="k" id="ro-ipiDevidoLabel">= IPI a recolher</span><span class="v" id="ro-ipiDevido"></span></div>
-            <div class="kv"><span class="k">PIS/COFINS: crédito na entrada (9,25%)</span><span class="v" id="ro-credPisCofins"></span></div>
+            <div class="kv"><span class="k">PIS/COFINS: sem crédito na entrada</span><span class="v" id="ro-credPisCofins"></span></div>
             <div class="kv"><span class="k">PIS/COFINS: base na saída (operação − IPI − ICMS − DIFAL)</span><span class="v" id="ro-basePisCofins"></span></div>
-            <div class="kv"><span class="k">PIS/COFINS: débito na saída (9,25%)</span><span class="v" id="ro-debPisCofins"></span></div>
+            <div class="kv"><span class="k">PIS/COFINS: débito cumulativo na saída</span><span class="v" id="ro-debPisCofins"></span></div>
             <div class="kv total"><span class="k" id="ro-pisCofinsDevidoLabel">= PIS/COFINS a recolher</span><span class="v" id="ro-pisCofinsDevido"></span></div>
           </div>
           <div class="notes" style="margin-top:14px" id="ro-notas"></div>
@@ -557,8 +557,8 @@
       </div>
 
       <div class="card" style="margin-top:20px">
-        <h2>DRE da operação — lucro real × lucro presumido <small style="font-weight:400;color:#6b7280">(estimativa gerencial)</small></h2>
-        <p class="hint">Estimativa gerencial — não é apuração. Efeito incremental desta venda nos dois regimes; a apuração de verdade é do período inteiro. Lucro real (regime atual): IRPJ/CSLL 34% (alíquota marginal; premissa: empresa acima da faixa do adicional). Presumido (simulação): 3,65% sem crédito e IRPJ/CSLL 25% + 9% sobre 8%/12% da receita — decisão anual, vale para a empresa inteira; validar com a contadoria.</p>
+        <h2>DRE da operação — lucro presumido <small style="font-weight:400;color:#6b7280">(estimativa gerencial)</small></h2>
+        <p class="hint">Estimativa gerencial no lucro presumido. Créditos recuperáveis de ICMS e IPI reduzem o CMV uma única vez. PIS/COFINS cumulativos sem crédito de compra. IRPJ/CSLL pelo critério incremental configurado; a apuração fiscal é do período inteiro. Saldo credor é um ativo a compensar, não uma entrada em caixa.</p>
         <div class="op-toggle"><label><input type="checkbox" id="r-custoOperacao"> Incorporar o custo de operação da fábrica (rateio por m²)</label><span class="hint" id="r-custoOperacaoInfo"></span></div>
         <div class="table-wrap"><table class="dre" id="ro-dre"></table></div>
       </div>
@@ -569,7 +569,7 @@
           <div class="kv"><span class="k">Valor dos produtos (NF de entrada)</span><span class="v" id="ro-compraProdutos"></span></div>
           <div class="kv"><span class="k">(+) IPI destacado na entrada</span><span class="v" id="ro-ipiCompra"></span></div>
           <div class="kv total"><span class="k">= Total da NF (desembolso ao fornecedor)</span><span class="v" id="ro-totalNF"></span></div>
-          <div class="kv"><span class="k">(−) Tributos recuperáveis: ICMS + IPI + PIS/COFINS</span><span class="v" id="ro-creditos"></span></div>
+          <div class="kv"><span class="k">(−) Tributos recuperáveis: ICMS + IPI</span><span class="v" id="ro-creditos"></span></div>
           <div class="kv total"><span class="k">= CMV (custo líquido da mercadoria)</span><span class="v" id="ro-custoLiquido"></span></div>
           <div class="kv"><span class="k">CMV por m²</span><span class="v" id="ro-custoLiquidoM2"></span></div>
         </div>
@@ -603,7 +603,7 @@
           <p><b>Gross-up</b> — quando o preço combinado é o valor dos produtos e o cliente paga IPI, DIFAL e FCP em acréscimo, o total da NF é produtos × (1 + IPI) ÷ (1 − DIFAL − FCP), porque DIFAL e FCP incidem sobre o total (base única).</p>
           <p><b>DIFAL</b> — diferencial de alíquota (interna do destino − interestadual) devido ao estado do cliente quando ele não é contribuinte (EC 87/2015, LC 190/2022). <b>FCP</b> — adicional do Fundo de Combate à Pobreza do estado de destino (RJ: 2%).</p>
           <p><b>IPI</b> — indústria destaca na saída e credita o IPI dos insumos; revenda sem industrializar não destaca nem credita. <b>FCI</b> — Ficha de Conteúdo de Importação, obrigatória para manter os 4% quando o produto industrializado tem mais de 40% de conteúdo importado.</p>
-          <p><b>PIS/COFINS não cumulativo</b> (lucro real) — 1,65% + 7,6% sobre a receita (valor da operação − IPI − ICMS próprio − DIFAL; FCP mantido na base, SC Cosit 61/2024), com crédito sobre as compras (base sem ICMS; IPI não recuperável fora, Lei 14.592/2023). <b>Cumulativo</b> (presumido) — 0,65% + 3% sem créditos.</p>
+          <p><b>Comparação histórica: PIS/COFINS não cumulativo</b> (lucro real) — 1,65% + 7,6% sobre a receita (valor da operação − IPI − ICMS próprio − DIFAL; FCP mantido na base, SC Cosit 61/2024), com crédito sobre as compras (base sem ICMS; IPI não recuperável fora, Lei 14.592/2023). <b>Cumulativo</b> (presumido) — 0,65% + 3% sem créditos.</p>
           <p><b>CMV</b> — custo da mercadoria vendida: compra menos os tributos recuperáveis. <b>Receita líquida</b> — receita bruta menos tributos sobre a venda. <b>Lucro operacional</b> — resultado antes de IRPJ/CSLL. <b>IRPJ/CSLL</b> — 34% sobre o lucro (real) ou 25% + 9% sobre 8%/12% da receita (presumido); estimativa marginal, empresa acima da faixa do adicional.</p>
         </div>
       </details>
@@ -679,13 +679,13 @@
             </div>
             <div class="card" style="margin-top:20px">
               <h2>Custos internos do orçamento</h2>
-              <p class="hint">Não vão para a nota fiscal e não entram em base de imposto: só reduzem o lucro na DRE (premissa: despesas dedutíveis, sem crédito de PIS/COFINS). Tipos: transporte próprio, frete contratado de terceiros, instalação, comissão (valor fixo ou % do total ao cliente), outros. <b>Não repita aqui um frete já cobrado na NF de um item</b> — o motor já trata o frete cobrado como despesa de igual valor.</p>
+              <p class="hint">Não vão para a nota fiscal e não entram em base de imposto: só reduzem o lucro na DRE (sem crédito de PIS/COFINS e sem reduzir IRPJ/CSLL no presumido). No parcelamento, custos percentuais também entram no cálculo do acréscimo para preservar o lucro à vista. Tipos: transporte próprio, frete contratado de terceiros, instalação, comissão (valor fixo ou % do total ao cliente), outros. <b>Não repita aqui um frete já cobrado na NF de um item</b> — o motor já trata o frete cobrado como despesa de igual valor.</p>
               <div class="table-wrap" id="orc-custos"></div>
               <button class="btn small" id="orcAddCusto" style="margin-top:8px">+ Adicionar custo</button>
             </div>
             <div class="card" style="margin-top:20px">
               <h2>Custo de operação da fábrica <small style="font-weight:400;color:var(--muted)">(rateio por m²)</small></h2>
-              <p class="hint">Custos fixos mensais (aluguel do galpão, pessoal, energia, manutenção, overhead) cadastrados na aba <b>Custo de operação</b>, divididos pela <b>produção média mensal</b> de lá — nunca pelos m² deste orçamento. Aqui o R$/m² é multiplicado pelos m² dos itens e entra só na DRE (reduz o lucro operacional e, no lucro real, a base do IRPJ/CSLL). Não vai para a proposta nem muda os preços. A taxa usada é a da configuração congelada neste orçamento.</p>
+              <p class="hint">Custos fixos mensais (aluguel do galpão, pessoal, energia, manutenção, overhead) cadastrados na aba <b>Custo de operação</b>, divididos pela <b>produção média mensal</b> de lá — nunca pelos m² deste orçamento. Aqui o R$/m² é multiplicado pelos m² dos itens e entra só na DRE (reduz o lucro operacional, sem reduzir a base de IRPJ/CSLL no presumido). Não vai para a proposta nem muda os preços. A taxa usada é a da configuração congelada neste orçamento.</p>
               <div class="op-toggle"><label><input type="checkbox" id="o-custoOperacao"> Incorporar o custo de operação neste orçamento</label></div>
               <p class="hint" id="o-custoOperacaoInfo"></p>
             </div>
@@ -701,7 +701,7 @@
               <div class="mini-hero alt"><div class="label">Lucro líquido — se fosse lucro presumido</div><div class="value" id="oo-liqPres">—</div><div class="sub" id="oo-liqPresSub"></div></div>
             </div>
             <div class="card">
-              <h2>Para onde vai o valor pago (cenário lucro real)</h2>
+              <h2>Para onde vai o valor pago</h2>
               <p class="hint" id="oviz-sub"></p>
               <div class="viz-bar" id="oviz-bar" role="img" aria-label="Composição do valor pago"></div>
               <div class="viz-legend" id="oviz-legend"></div>
@@ -719,7 +719,7 @@
         </div>
 
         <div class="card" style="margin-top:20px">
-          <h2>DRE do orçamento — lucro real × lucro presumido <small style="font-weight:400;color:var(--muted)">(estimativa gerencial)</small></h2>
+          <h2>DRE do orçamento <small style="font-weight:400;color:var(--muted)">(estimativa gerencial)</small></h2>
           <p class="hint" id="orc-dreHint"></p>
           <div class="table-wrap"><table class="dre" id="oo-dre"></table></div>
         </div>
@@ -764,7 +764,7 @@
             <div class="kv"><span class="k">Custo fixo mensal total</span><span class="v" id="op-total">—</span></div>
             <div class="kv"><span class="k">÷ Produção média mensal</span><span class="v" id="op-producao">—</span></div>
             <div class="kv total"><span class="k">= Custo de operação por m²</span><span class="v" id="op-taxa2">—</span></div>
-            <p class="hint" style="margin-top:10px">Em cada orçamento ou simulação: <b>R$/m² × m² vendidos</b>. Entra só na DRE, abaixo do lucro bruto (ao lado de frete, cartão e custos internos): reduz o lucro operacional e, no lucro real, a base do IRPJ/CSLL (premissa: despesa dedutível, sem crédito de PIS/COFINS). Não entra na nota fiscal, em base de imposto nem no preço digitado — a calculadora continua espelhando a planilha; o custo aparece como uma linha a mais. Orçamentos já salvos usam a taxa congelada neles; "Recalcular com a configuração atual" traz a taxa nova.</p>
+            <p class="hint" style="margin-top:10px">Em cada orçamento ou simulação: <b>R$/m² × m² vendidos</b>. Entra só na DRE, abaixo do lucro bruto (ao lado de frete, cartão e custos internos): reduz o lucro operacional, sem reduzir a base de IRPJ/CSLL no presumido (sem crédito de PIS/COFINS). Não entra na nota fiscal, em base de imposto nem no preço digitado — o custo aparece como uma linha a mais. Orçamentos já salvos usam a taxa congelada neles; "Recalcular com a configuração atual" traz a taxa nova.</p>
             <p class="hint" id="op-exemplo"></p>
             <div class="notes" id="op-avisos"></div>
           </div>
@@ -847,7 +847,7 @@
           <div class="field"><label>Alíquota CSLL (%)</label><input type="number" step="0.5" data-cfg="tributos.csll" data-type="pct"></div>
           <div class="field"><label>Presumido: PIS cumulativo (%)</label><input type="number" step="0.01" data-cfg="tributos.pisCumulativo" data-type="pct"></div>
           <div class="field"><label>Presumido: COFINS cumulativo (%)</label><input type="number" step="0.01" data-cfg="tributos.cofinsCumulativo" data-type="pct"></div>
-          <div class="field"><label>Receita anual acima de R$ 5 milhões? (LC 224/2025)<small>Ao ligar, a simulação assume que TODA a receita simulada está na parcela excedente: percentuais de presunção +10% (8% → 8,8%; 12% → 13,2%). Só afeta a coluna "se fosse presumido"; a apuração real proporcionaliza por período</small></label><select data-cfg="tributos.lc224" data-type="bool"><option value="0">Não</option><option value="1">Sim</option></select></div>
+          <div class="field"><label>Receita anual acima de R$ 5 milhões? (LC 224/2025)<small>Ao ligar, a simulação assume que TODA a receita simulada está na parcela excedente: percentuais de presunção +10% (8% → 8,8%; 12% → 13,2%). Afeta a estimativa do presumido; a apuração efetiva proporcionaliza por período</small></label><select data-cfg="tributos.lc224" data-type="bool"><option value="0">Não</option><option value="1">Sim</option></select></div>
 
           <h3>Dados da empresa (proposta impressa)</h3>
           <div class="field"><label>Razão social<small>Sai na assinatura da proposta</small></label><input type="text" data-cfg="empresa.razaoSocial" data-type="text"></div>

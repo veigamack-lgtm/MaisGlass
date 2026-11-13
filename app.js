@@ -265,18 +265,18 @@
         dica: 'Se o FOB mudou na última cotação, atualize o produto em Configurações antes de simular. Confira o dólar e o frete internacional no topo da tela: os dois entram nesse custo.'
       },
       perda: {
-        oque: 'Sobra e quebra do corte: quanto a mais de chapa é preciso comprar para entregar a metragem vendida.',
-        muda: 'Multiplica a quantidade comprada por (1 + perda): 100 m² vendidos com 10% custam 110 m² de matéria-prima. Só mexe no custo e no lucro — preço, impostos e DIFAL da venda não mudam.',
+        oque: 'Percentual da chapa comprada que vira descarte no corte.',
+        muda: 'Quantidade comprada = quantidade vendida ÷ (1 − perda). Para entregar 100 m² com 10% de descarte, são necessários 111,111… m². A perda deve ser menor que 100%.',
         dica: '0% para chapa inteira; 5% a 15% em corte de peças. Use o aproveitamento real do plano de corte do projeto.'
       },
       precoBase: {
         oque: 'Preço de venda por m² combinado com o cliente, antes da taxa do cartão e do DIFAL.',
         muda: 'É a base de tudo: preço + taxa do cartão, ICMS efetivo (14% em MG / 1,5% fora, regime especial), PIS/COFINS, DIFAL e lucro. DIFAL e taxa do cartão são cobrados a mais, por cima deste valor — o cliente paga o "Preço final".',
-        dica: 'Compare com "Custo matéria-prima (R$/m²)" e ajuste até o lucro líquido no lucro real ficar na margem que você quer. Se prometeu preço fechado ao cliente, o número a comparar é o "Preço final ao cliente", não este campo.'
+        dica: 'Compare com "Custo matéria-prima (R$/m²)" e ajuste até o lucro líquido no lucro presumido ficar na margem que você quer. Se prometeu preço fechado ao cliente, o número a comparar é o "Preço final ao cliente", não este campo.'
       },
       quantidade: {
         oque: 'Metros quadrados vendidos — o que sai na nota fiscal.',
-        muda: 'Multiplica preço, impostos e custo; a perda é calculada por cima dela. Não altera o custo por m² da importação, que vem do container inteiro rateado pela capacidade.',
+        muda: 'Multiplica preço, impostos e custo; a compra é calculada dividindo a quantidade por (1 − perda). Não altera o custo por m² da importação, que vem do container inteiro rateado pela capacidade.',
         dica: 'Use a metragem do orçamento. Para vender um container fechado, use a capacidade cadastrada do produto (ex.: laminado 4+4 = 1.336,5 m²).'
       },
       frete: {
@@ -308,37 +308,37 @@
     rev: {
       fornecedorUF: {
         oque: 'Estado do fornecedor (importadora/distribuidor com IE) que emite a NF de entrada para a MaisGlass, em MG.',
-        muda: 'Ao trocar, o app sugere o ICMS destacado na entrada: 4% se for de outro estado (mercadoria importada, Res. SF 13/2012) ou 18% (alíquota interna) se o fornecedor for de Minas. Isso muda o crédito de ICMS e, por tabela, a base do PIS/COFINS e o custo.',
+        muda: 'Ao trocar, o app sugere o ICMS destacado na entrada: 4% se for de outro estado (mercadoria importada, Res. SF 13/2012) ou 18% (alíquota interna) se o fornecedor for de Minas. Isso muda o crédito de ICMS e o custo líquido da mercadoria.',
         dica: 'Escolha a UF que está na NF do fornecedor. Se o ICMS destacado na nota for diferente do sugerido (Simples Nacional, ST, benefício), corrija o campo "ICMS destacado na entrada".'
       },
       precoCompra: {
         oque: 'Valor unitário dos produtos na NF de entrada, em R$/m², com o ICMS já incluído (por dentro) e sem o IPI (que vem por fora).',
-        muda: 'Base de todos os créditos: ICMS (× alíquota destacada), IPI (× alíquota do IPI) e PIS/COFINS (9,25% sobre produtos − ICMS). Total da NF = produtos + IPI. Custo, CMV e lucro seguem daqui.',
+        muda: 'Base dos créditos recuperáveis: ICMS (× alíquota informada) e IPI quando habilitado. No presumido, PIS/COFINS não geram crédito de compra. Total da NF = produtos + IPI. Custo, CMV e lucro seguem daqui.',
         dica: 'Se o fornecedor cotou "com IPI incluso", divida por 1,065 (IPI 6,5%) para chegar ao valor dos produtos. Se cotou sem impostos, peça o valor como sairá na NF.'
       },
       quantidade: {
-        oque: 'Metros quadrados vendidos ao cliente. A compra é quantidade × (1 + perda).',
+        oque: 'Metros quadrados vendidos ao cliente. A compra é quantidade ÷ (1 − perda).',
         muda: 'Multiplica a compra e seus créditos, a receita, os impostos da venda e o lucro.',
         dica: 'Use a metragem do orçamento; a perda cuida da sobra do corte.'
       },
       perda: {
-        oque: 'Sobra e quebra do beneficiamento: quanto a mais de chapa é preciso comprar para entregar a metragem vendida.',
-        muda: 'Multiplica a quantidade comprada — e a NF de entrada, com seus créditos — por (1 + perda). Só mexe no custo e no lucro; preço e impostos da venda não mudam.',
+        oque: 'Percentual da chapa comprada que vira descarte no beneficiamento.',
+        muda: 'Compra = quantidade vendida ÷ (1 − perda). A NF de entrada e seus créditos acompanham a quantidade comprada. A perda deve ser menor que 100%.',
         dica: '0% para chapa inteira; 5% a 15% em corte de peças. Use o aproveitamento real do plano de corte.'
       },
       icmsCompra: {
-        oque: 'Alíquota de ICMS destacada na NF do fornecedor. Vira crédito para a MaisGlass (regime normal, lucro real).',
-        muda: 'Crédito de ICMS = produtos × alíquota. Crédito maior → ICMS a recolher menor e base do PIS/COFINS da entrada menor (o crédito de PIS/COFINS cai um pouco). Sugestão automática: 4% (importado, outro estado) ou 18% (fornecedor em MG).',
+        oque: 'Alíquota de ICMS destacada na NF do fornecedor. Vira crédito para a MaisGlass (regime normal de ICMS, inclusive no lucro presumido).',
+        muda: 'Crédito de ICMS = produtos × alíquota. Crédito maior reduz o custo líquido da compra e o ICMS a recolher. Não há crédito de PIS/COFINS no presumido. Sugestão automática: 4% (importado, outro estado) ou 18% (fornecedor em MG).',
         dica: 'Copie o percentual da NF. Fornecedor do Simples Nacional: use o percentual de crédito informado na nota (geralmente entre 1% e 3,95%). Se a nota vier com ST ou sem destaque, use 0.'
       },
       ipi: {
         oque: 'Alíquota de IPI destacada na NF do fornecedor (importador é equiparado a industrial e destaca IPI; vidro plano na TIPI: 6,5%).',
-        muda: 'IPI = produtos × alíquota, somado ao total da NF. Na industrialização vira crédito (compensa o IPI da saída); na revenda sem industrializar vira custo e sai da base de crédito do PIS/COFINS.',
+        muda: 'IPI = produtos × alíquota, somado ao total da NF. Na industrialização vira crédito (compensa o IPI da saída); na revenda sem industrializar vira custo e não gera crédito de PIS/COFINS no presumido.',
         dica: 'Confira na NF. Se o fornecedor não destaca IPI (atacadista não equiparado), use 0 — então não há crédito e o IPI da saída pesa inteiro.'
       },
       modo: {
         oque: 'Se a MaisGlass industrializa o vidro (corte, lapidação, furação, têmpera, laminação — RIPI art. 4º, II) antes de vender, ou revende a chapa como comprou.',
-        muda: 'Industrialização: crédito do IPI da entrada e IPI destacado na saída (6,5%). Revenda sem industrializar: o IPI da compra vira custo, não há IPI na saída (os dois controles ficam travados) e a base de crédito do PIS/COFINS exclui o IPI. O ICMS não muda.',
+        muda: 'Industrialização: crédito do IPI da entrada e IPI destacado na saída (6,5%). Revenda sem industrializar: o IPI da compra vira custo, não há IPI na saída (os dois controles ficam travados) e não há crédito de PIS/COFINS no presumido. O ICMS não muda.',
         dica: 'Qualquer beneficiamento (até só o corte) já é industrialização — é o normal da MaisGlass. Use "Revenda" só para chapa vendida sem nenhum processo.'
       },
       ipiCredito: {
@@ -359,11 +359,11 @@
       precoVenda: {
         oque: 'Preço de venda por m² combinado com o cliente. O que ele significa depende do campo "O preço combinado é…".',
         muda: 'Base da receita, do IPI, do ICMS/DIFAL/FCP, do PIS/COFINS e do lucro. Preço fechado: é o total que o cliente paga (impostos saem de dentro). Valor dos produtos: IPI, DIFAL e FCP são somados por cima.',
-        dica: 'Ajuste até a margem líquida (DRE, lucro real) ficar onde você quer. Não contribuinte fora de MG com preço fechado: DIFAL + FCP (ex.: 18% no RJ) saem da sua margem — confira o lucro antes de aceitar.'
+        dica: 'Ajuste até a margem líquida (DRE, lucro presumido) ficar onde você quer. Não contribuinte fora de MG com preço fechado: DIFAL + FCP (ex.: 18% no RJ) saem da sua margem — confira o lucro antes de aceitar.'
       },
       difalIncluso: {
         oque: 'Como o preço foi combinado: "fechado" (valor total da NF, tudo incluído) ou "valor dos produtos" (IPI, DIFAL e FCP cobrados à parte).',
-        muda: 'Fechado: total = preço × qtd + frete; o IPI é calculado por dentro (total ÷ 1,065) e DIFAL/FCP reduzem a margem. Valor dos produtos: total = produtos × (1 + IPI) ÷ (1 − DIFAL − FCP), com gross-up; o cliente paga mais e a margem se mantém. Com cartão, a taxa entra no gross-up.',
+        muda: 'Fechado: total = preço × qtd + frete; o IPI é calculado por dentro (total ÷ 1,065) e DIFAL/FCP reduzem a margem. Valor dos produtos: total = produtos × (1 + IPI) ÷ (1 − DIFAL − FCP), com gross-up; o cliente paga os acréscimos. Com cartão, o acréscimo cobre a taxa e os tributos adicionais para preservar o lucro líquido em reais.',
         dica: 'Construtora costuma negociar preço fechado. Se a proposta diz "mais impostos" ou "IPI/DIFAL por fora", use "Valor dos produtos" e mostre o total ao cliente antes de fechar.'
       },
       icmsSaida: {
@@ -383,7 +383,7 @@
       },
       pagamento: {
         oque: 'À vista (PIX, boleto, transferência, dinheiro) ou parcelado no cartão de crédito.',
-        muda: 'À vista: taxa zero. Parcelado: taxa = MDR da bandeira + 1,5% de antecipação + 0,75% por parcela. A taxa é acrescida ao valor pago pelo cliente (mesmo no preço fechado) e entra na base do IPI/ICMS/PIS/COFINS. Mesmo 1x no cartão paga taxa (Visa 1x ≈ 3,45%).',
+        muda: 'À vista: taxa zero. Parcelado: taxa = MDR da bandeira + 1,5% de antecipação + 0,75% por parcela. O preço cobrado cobre a taxa e os impostos sobre o acréscimo para manter o lucro líquido em reais (mesmo no preço fechado). Mesmo 1x no cartão paga taxa (Visa 1x ≈ 3,45%).',
         dica: 'Ofereça desconto no PIX/boleto: a taxa sai do preço do cliente sem mexer na sua margem. As taxas ficam em Configurações → Cartão.'
       },
       bandeira: {
@@ -400,17 +400,17 @@
     nac: {
       fornecedorUF: {
         oque: 'Estado da indústria nacional (com IE) que emite a NF de entrada para a MaisGlass, em MG.',
-        muda: 'Ao trocar, o app sugere o ICMS destacado na entrada: 12% de qualquer outro estado (Res. SF 22/1989 — com destino em MG é sempre 12%) ou 18% (alíquota interna) se a indústria for de Minas. Isso muda o crédito de ICMS e, por tabela, a base do PIS/COFINS e o custo.',
+        muda: 'Ao trocar, o app sugere o ICMS destacado na entrada: 12% de qualquer outro estado (Res. SF 22/1989 — com destino em MG é sempre 12%) ou 18% (alíquota interna) se a indústria for de Minas. Isso muda o crédito de ICMS e o custo líquido da mercadoria.',
         dica: 'Escolha a UF que está na NF. Indústria do Simples Nacional destaca crédito menor (o percentual vem informado na nota) e não destaca IPI — ajuste os campos de ICMS e IPI da entrada.'
       },
       icmsCompra: {
-        oque: 'Alíquota de ICMS destacada na NF da indústria. Vira crédito para a MaisGlass (regime normal, lucro real).',
+        oque: 'Alíquota de ICMS destacada na NF da indústria. Vira crédito para a MaisGlass (regime normal de ICMS, inclusive no lucro presumido).',
         muda: 'Crédito de ICMS = produtos × alíquota. Crédito maior → ICMS a recolher menor e base do PIS/COFINS da entrada menor. Sugestão automática: 12% (outro estado) ou 18% (indústria em MG).',
         dica: 'Copie o percentual da NF. Fornecedor do Simples Nacional: use o percentual de crédito informado na nota (geralmente entre 1% e 3,95%). Se a nota vier com ST ou sem destaque, use 0.'
       },
       ipi: {
         oque: 'Alíquota de IPI destacada pela indústria nacional, conforme o NCM na TIPI (vidro plano 7005/7007: 6,5%).',
-        muda: 'IPI = produtos × alíquota, somado ao total da NF. Na industrialização vira crédito (compensa o IPI da saída); na revenda sem industrializar vira custo e sai da base de crédito do PIS/COFINS.',
+        muda: 'IPI = produtos × alíquota, somado ao total da NF. Na industrialização vira crédito (compensa o IPI da saída); na revenda sem industrializar vira custo e não gera crédito de PIS/COFINS no presumido.',
         dica: 'Confirme na NF e na TIPI do NCM do fornecedor. Indústria do Simples Nacional não destaca IPI — use 0.'
       },
       clienteUF: {
@@ -432,7 +432,7 @@
       obra: { oque: 'Nome da obra ou empreendimento.', muda: 'Só aparece na proposta impressa.', dica: 'Ajuda o cliente a encaminhar a proposta internamente.' },
       uf: { oque: 'Estado onde a mercadoria é entregue e faturada. Vale para TODOS os itens do orçamento (um orçamento = um cliente, um destino).', muda: 'Define DIFAL, FCP e o ICMS de cada item: em MG venda interna (14% efetivo na importação direta; 18% nas demais), fora de MG interestadual + DIFAL/FCP para consumidor final. Mudar com itens já adicionados recalcula todos (o app mostra a diferença e pede confirmação).', dica: 'Se a entrega for em UF diferente do faturamento, o DIFAL é da UF de entrega — cenário não coberto na v1; use a UF de entrega e confirme com a contadoria.' },
       destinatario: { oque: 'Consumidor final não contribuinte (construtora, pessoa física, órgão público, empresa sem IE) ou contribuinte do ICMS que compra para revender ou industrializar (com IE).', muda: 'Consumidor final: DIFAL + FCP fora de MG e IPI na base do ICMS. Contribuinte que revende/industrializa: sem DIFAL/FCP, IPI fora da base (revenda/nacional). Vale para todos os itens; mudar recalcula.', dica: 'Construtora = consumidor final, mesmo com CNPJ. Contribuinte comprando para uso próprio/ativo não é coberto — fale com a contadoria.' },
-      pagamento: { oque: 'À vista (PIX, boleto, transferência) ou parcelado no cartão. Vale para todos os itens.', muda: 'Parcelado acrescenta a taxa do cartão (MDR + 1,5% + 0,75% por parcela) ao valor pago em cada item e recalcula tudo.', dica: 'Simule à vista e parcelado e compare o "Total ao cliente" antes de fechar.' },
+      pagamento: { oque: 'À vista (PIX, boleto, transferência) ou parcelado no cartão. Vale para todos os itens.', muda: 'Parcelado recalcula o preço para preservar o lucro líquido à vista, cobrindo taxa, tributos adicionais e crescimento dos custos internos em percentual. Diferenças residuais de centavos favorecem a empresa.', dica: 'Simule à vista e parcelado e compare o "Total ao cliente" antes de fechar.' },
       bandeira: { oque: 'Bandeira do cartão quando o pagamento é parcelado.', muda: 'Muda o MDR aplicado em todos os itens.', dica: 'Visa/Master têm as menores taxas; Amex e Hipercard as maiores.' },
       parcelas: { oque: 'Número de parcelas (1 a 12) quando o pagamento é parcelado.', muda: 'Cada parcela soma 0,75% à taxa e muda a faixa do MDR; recalcula todos os itens.', dica: 'Mostre ao cliente a diferença de total entre 1x, 3x e 6x.' },
       validade: { oque: 'Por quantos dias a proposta vale.', muda: 'Só aparece na proposta impressa.', dica: 'Com dólar e frete oscilando, 7 a 15 dias é prudente; ao renovar, use "Recalcular" e uma nova revisão.' },
@@ -642,6 +642,8 @@
     renderHeroDre(PFX.o, dR, dP);
     renderDre(dR, dP, PFX.o + 'dre', DRE_LINHAS_REVENDA);
 
+    $(PFX.o + 'credPisCofins').previousElementSibling.textContent = 'PIS/COFINS: crédito de compra (presumido: zero)';
+    $(PFX.o + 'debPisCofins').previousElementSibling.textContent = 'PIS/COFINS: débito na saída (' + pct(config.tributos.pisCumulativo + config.tributos.cofinsCumulativo, 2) + ')';
     $(PFX.o + 'credPisCofins').textContent = brl(r.creditoPIS + r.creditoCOFINS);
     $(PFX.o + 'debPisCofins').textContent = brl(r.pisVenda + r.cofinsVenda);
     $(PFX.o + 'pisCofinsDevidoLabel').textContent = r.saldoCredorPisCofins > 0 ? '= Saldo credor de PIS/COFINS' : '= PIS/COFINS a recolher';
@@ -671,10 +673,10 @@
     $(PFX.o + 'notas').innerHTML = '';
     r.notas.forEach(function (n) { $(PFX.o + 'notas').appendChild(el('p', { text: n })); });
 
-    var impostos = r.icmsInternoDevido + r.pisDevido + r.cofinsDevido + r.ipiDevido;
+    var impostos = r.icmsDebito + r.pisVenda + r.cofinsVenda + r.ipiVenda;
     var g = comFatiaOperacao(opc, [
-      { nome: 'Mercadoria (NF de entrada)', sub: 'produtos + IPI, antes dos créditos', valor: r.totalNFCompra },
-      { nome: 'Tributos a recolher (líquidos de créditos)', sub: 'ICMS ' + brl(r.icmsInternoDevido) + ' · PIS/COFINS ' + brl(r.pisDevido + r.cofinsDevido) + ' · IPI ' + brl(r.ipiDevido), valor: impostos },
+      { nome: 'Mercadoria (CMV)', sub: 'líquido dos créditos recuperáveis de ICMS/IPI', valor: r.custoLiquidoCompra },
+      { nome: 'Tributos sobre a venda', sub: 'ICMS ' + brl(r.icmsDebito) + ' · PIS/COFINS ' + brl(r.pisVenda + r.cofinsVenda) + ' · IPI ' + brl(r.ipiVenda), valor: impostos },
       { nome: 'DIFAL + FCP', sub: r.difalPct + r.fcpPct > 0 ? pct(r.difalPct + r.fcpPct, 1) + ' (não contribuinte)' : 'não se aplica', valor: r.difal + r.fcp },
       { nome: 'Frete', sub: '', valor: r.frete },
       { nome: 'Taxa do cartão', sub: r.taxaCartao > 0 ? pct(r.taxaCartao) : 'à vista', valor: r.valorTaxaCartao },
@@ -735,31 +737,43 @@
     }
     return { aplicar: cb.checked && custo > 0, custo: custo };
   }
-  function renderDre(a, b, tableId, linhas, rotuloTributos) {
-    function row(label, k, cls) {
-      var va = a[k], vb = b[k];
-      return el('tr', { class: cls || '' }, [el('td', { text: label }),
-        el('td', { text: brl(va), class: va < 0 ? 'neg' : '' }),
-        el('td', { text: brl(vb), class: vb < 0 ? 'neg' : '' })]);
+  function renderDre(a, b, tableId, linhas, rotuloTributos, cfgDre) {
+    var novo = CALC.usaPresumido(cfgDre || config), colunas = novo ? [b] : [a, b];
+    function row(label, k, cls, formato) {
+      return el('tr', { class: cls || '' }, [el('td', { text: label })].concat(colunas.map(function (d) {
+        return el('td', { text: (formato || brl)(d[k]), class: d[k] < 0 ? 'neg' : '' });
+      })));
     }
     var t = $(tableId || PFX.o + 'dre'); t.innerHTML = '';
-    t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: 'DRE da operação (estimativa gerencial)' }), el('th', { text: 'Lucro real (atual)' }), el('th', { text: 'Lucro presumido (simulação)' })])]));
+    t.appendChild(el('thead', {}, [el('tr', {}, [el('th', { text: 'DRE gerencial da operação' })].concat(
+      (novo ? ['Lucro presumido'] : ['Lucro real (histórico)', 'Lucro presumido (simulação)']).map(function (x) { return el('th', { text: x }); })))]));
     var tb = el('tbody');
     (linhas || DRE_LINHAS_REVENDA).forEach(function (l) {
-      if (l[3] === 'op' && !a.custoOperacaoAplicado) return;   // linha do custo de operação só aparece quando está ligado
-      tb.appendChild(row(l[0], l[1], l[2]));
+      if (l[3] === 'op' && !b.custoOperacaoAplicado) return;
+      var label = l[0];
+      if (novo && l[1] === 'receitaBruta') label = 'Faturamento bruto (total pago pelo cliente)';
+      if (novo && l[1] === 'pisCofins') label = '(−) PIS/COFINS cumulativos sobre a venda';
+      if (novo && l[1] === 'irpjCsll') label = '(−) IRPJ + CSLL (estimativa incremental)';
+      if (novo && l[1] === 'lucroOperacional') label = '= Resultado antes de IRPJ/CSLL';
+      tb.appendChild(row(label, l[1], l[2]));
     });
-    tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: 'Margem líquida (sobre a receita líquida)' }), el('td', { text: pctNa(a.margemLiquida) }), el('td', { text: pctNa(b.margemLiquida) })]));
-    tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: 'Lucro líquido sobre o valor pago pelo cliente' }), el('td', { text: pctNa(a.margemSobreValorPago) }), el('td', { text: pctNa(b.margemSobreValorPago) })]));
-    tb.appendChild(el('tr', { class: 'sub' }, [el('td', { text: rotuloTributos || 'Tributos totais líquidos (ICMS, IPI, PIS/COFINS, DIFAL/FCP, IRPJ/CSLL)' }), el('td', { text: brl(a.tributosTotais) }), el('td', { text: brl(b.tributosTotais) })]));
+    tb.appendChild(row('Margem líquida (sobre a receita líquida)', 'margemLiquida', 'sub', pctNa));
+    tb.appendChild(row('Lucro líquido sobre o valor pago pelo cliente', 'margemSobreValorPago', 'sub', pctNa));
+    tb.appendChild(row(rotuloTributos || 'Tributos líquidos de créditos + IRPJ/CSLL (informativo; já considerados acima)', 'tributosTotais', 'sub'));
     t.appendChild(tb);
   }
-  function renderHeroDre(prefix, dR, dP) {
+  function renderHeroDre(prefix, dR, dP, cfgDre) {
+    var novo = CALC.usaPresumido(cfgDre || config);
+    var cardR = $(prefix + 'liqReal').closest('.mini-hero'), cardP = $(prefix + 'liqPres').closest('.mini-hero');
+    cardR.classList.toggle('hidden', novo); cardP.classList.toggle('alt', !novo);
+    cardP.querySelector('.label').textContent = novo ? 'Lucro líquido — lucro presumido' : 'Lucro líquido — se fosse lucro presumido';
+    cardP.parentElement.style.gridTemplateColumns = novo ? '1fr' : '';
     $(prefix + 'liqReal').textContent = brl(dR.lucroLiquido);
     $(prefix + 'liqRealSub').textContent = pctNa(dR.margemSobreValorPago) + ' do valor pago · IRPJ/CSLL ' + brl(dR.irpjCsll);
     $(prefix + 'liqPres').textContent = brl(dP.lucroLiquido);
     var delta = dP.lucroLiquido - dR.lucroLiquido;
-    $(prefix + 'liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(dP.irpjCsll);
+    $(prefix + 'liqPresSub').textContent = novo ? pctNa(dP.margemSobreValorPago) + ' do valor pago · IRPJ/CSLL ' + brl(dP.irpjCsll)
+      : (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(dP.irpjCsll);
   }
 
   function limparResultadosRevenda(msg) {
@@ -1687,7 +1701,8 @@
   /* campos que valem para todos os itens: UF, destinatário, pagamento, bandeira, parcelas → recalcula tudo (atômico) */
   function lerCabecalhoFiscal() {
     return { uf: $('o-uf').value, destinatario: $('o-destinatario').value, pagamento: $('o-pagamento').value,
-      bandeira: $('o-bandeira').value || orc.condicoes.bandeira, parcelas: Math.max(1, Math.min(12, parseInt($('o-parcelas').value, 10) || 1)) };
+      bandeira: $('o-bandeira').value || orc.condicoes.bandeira, parcelas: Math.max(1, Math.min(12, parseInt($('o-parcelas').value, 10) || 1)),
+      custosPercentuais: ORC.cabecalhoDe(orc).custosPercentuais };
   }
   function onCabecalhoFiscal() {
     var novo = lerCabecalhoFiscal();
@@ -1703,7 +1718,7 @@
         condicoes: Object.assign({}, orc.condicoes, { pagamento: novo.pagamento, bandeira: novo.bandeira, parcelas: novo.parcelas }), itens: recalc }));
       var msg = 'Mudar o cabeçalho recalcula os ' + orc.itens.length + ' item(ns):\n' +
         'Total ao cliente: ' + brl(antes.totais.totalCliente) + ' → ' + brl(depois.totais.totalCliente) + '\n' +
-        'Lucro líquido (real): ' + brl(antes.real.lucroLiquido) + ' → ' + brl(depois.real.lucroLiquido) + '\nAplicar?';
+        'Lucro líquido (' + depois.regimeAtual + '): ' + brl(antes[antes.regimeAtual].lucroLiquido) + ' → ' + brl(depois[depois.regimeAtual].lucroLiquido) + '\nAplicar?';
       if (!confirm(msg)) { renderCabecalhoOrc(); return; }
       orc.itens = recalc;
     }
@@ -1862,7 +1877,7 @@
       ]);
       // R$/m² ao cliente editável (nov/2026): alterar recalcula o item com a configuração congelada (orcamento.js → precoParaM2)
       var campoPreco = ORC.CAMPO_PRECO[it.origem], precoCalc = Number(it.inputs && it.inputs[campoPreco]);
-      var precoInp = el('input', { type: 'number', step: '0.01', min: '0', class: 'preco', value: r.calculado ? (Math.round(r.precoM2 * 100) / 100).toFixed(2) : '' });
+      var precoInp = el('input', { type: 'number', step: '0.01', min: '0', class: 'preco', value: r.calculado ? CALC.dinheiro(r.precoM2).toFixed(2) : '' });
       precoInp.disabled = travado || !r.calculado;
       precoInp.title = 'Preço ao cliente por m² (total ÷ m²). Alterar recalcula este item com a configuração congelada do orçamento — o mesmo que Carregar → mudar o preço → Substituir item.';
       precoInp.addEventListener('change', function () { alterarPrecoItem(it, precoInp.value); });
@@ -1920,6 +1935,17 @@
   }
 
   /* ---------- custos internos ---------- */
+  function alterarCustosOrc(alterar) {
+    var anteriores = clone(orc.custosInternos), itens = orc.itens;
+    try {
+      alterar();
+      if (CALC.usaPresumido(orc.configSnapshot)) orc.itens = recalcularItens(orc.configSnapshot, ORC.cabecalhoDe(orc));
+      renderOrc(); salvarOrcAtual();
+    } catch (e) {
+      orc.custosInternos = anteriores; orc.itens = itens;
+      renderOrc(); orcStatus('Custo não alterado: ' + e.message, 'err');
+    }
+  }
   function renderCustosOrc(c) {
     var wrap = $('orc-custos'); wrap.innerHTML = '';
     var travado = orcTravado();
@@ -1937,15 +1963,18 @@
       var num = el('input', { type: 'number', step: ehPct ? '0.1' : '0.01', min: '0', value: ehPct ? Math.round(ci.percentual * 1e4) / 100 : (ci.valor === null || ci.valor === undefined ? '' : ci.valor) });
       num.disabled = travado;
       modo.addEventListener('change', function () {
-        if (modo.value === 'percentual') { ci.percentual = 0; ci.valor = null; } else { ci.valor = 0; ci.percentual = null; }
-        renderOrc(); salvarOrcAtual();
+        alterarCustosOrc(function () {
+          if (modo.value === 'percentual') { ci.percentual = 0; ci.valor = null; } else { ci.valor = 0; ci.percentual = null; }
+        });
       });
       num.addEventListener('change', function () {
         var v = num.value === '' ? 0 : Number(num.value);
-        if (modo.value === 'percentual') ci.percentual = v / 100; else ci.valor = v;
-        renderOrc(); salvarOrcAtual();
+        alterarCustosOrc(function () {
+          if (!isFinite(v) || v < 0 || (modo.value === 'percentual' && v > 100)) throw new Error('Informe um custo válido.');
+          if (modo.value === 'percentual') ci.percentual = v / 100; else ci.valor = v;
+        });
       });
-      var rm = el('button', { class: 'btn small danger', text: 'Remover', onclick: function () { orc.custosInternos.splice(orc.custosInternos.indexOf(ci), 1); renderOrc(); salvarOrcAtual(); } }); rm.disabled = travado;
+      var rm = el('button', { class: 'btn small danger', text: 'Remover', onclick: function () { alterarCustosOrc(function () { orc.custosInternos.splice(orc.custosInternos.indexOf(ci), 1); }); } }); rm.disabled = travado;
       return el('tr', {}, [el('td', {}, [tipo]), el('td', {}, [desc]), el('td', {}, [modo]), el('td', { class: 'num' }, [num]),
         el('td', { class: 'num', text: brl(calc[ci.id] || 0) }), el('td', {}, [rm])]);
     });
@@ -1989,19 +2018,16 @@
     var t = c.totais;
     $('oo-totalLabel').textContent = 'Total ao cliente' + (t.itens ? ' (' + t.itens + ' ite' + (t.itens > 1 ? 'ns' : 'm') + ')' : '');
     $('oo-total').textContent = brl(t.totalCliente);
-    $('oo-totalSub').textContent = t.itens ? 'Custo total ' + brl(t.custoTotalReal) + ' (antes de IRPJ/CSLL, cenário real) · lucro operacional ' + brl(t.lucroOperacional) + (t.margemOperacional !== null ? ' (' + pct(t.margemOperacional, 1) + ')' : '') + ' · custos internos' + (c.operacao.aplicar ? ' e custo de operação (' + brl(t.custoOperacao) + ')' : '') + ' já descontados' : 'Adicione itens pelas calculadoras.';
-    $('oo-liqReal').textContent = brl(c.real.lucroLiquido);
-    $('oo-liqRealSub').textContent = pctNa(c.real.margemSobreValorPago) + ' do valor pago · IRPJ/CSLL ' + brl(c.real.irpjCsll);
-    $('oo-liqPres').textContent = brl(c.presumido.lucroLiquido);
-    var delta = c.presumido.lucroLiquido - c.real.lucroLiquido;
-    $('oo-liqPresSub').textContent = (delta >= 0 ? '+ ' : '− ') + brl(Math.abs(delta)) + ' em relação ao lucro real · IRPJ/CSLL ' + brl(c.presumido.irpjCsll);
-    renderGraficoGenerico('oviz', t.totalCliente, t.custoTotalReal, c.real.lucroLiquido, c.composicao.map(function (p) {
-      var sub = p.chave === 'tributos' ? 'venda ' + brl(c.real.deducoes) + ' · IRPJ/CSLL ' + brl(c.real.irpjCsll) : (p.chave === 'cmv' ? 'líquido dos créditos' : (p.chave === 'internos' ? (orc.custosInternos.length + ' lançamento(s)') : (p.chave === 'operacao' ? (c.operacao.aplicar ? brl(c.operacao.taxaM2) + '/m² × ' + numFmt(c.operacao.m2, 0) + ' m²' : 'desligado') : (p.chave === 'lucro' ? 'lucro real' : 'itens'))));
-      return { nome: p.nome, sub: sub, valor: p.valor, chave: p.chave };
+    $('oo-totalSub').textContent = t.itens ? 'Custo total ' + brl(t.custoTotal) + ' (antes de IRPJ/CSLL, ' + (c.regimeAtual === 'presumido' ? 'lucro presumido' : 'cenário histórico') + ') · lucro operacional ' + brl(t.lucroOperacional) + (t.margemOperacional !== null ? ' (' + pct(t.margemOperacional, 1) + ')' : '') + ' · custos internos' + (c.operacao.aplicar ? ' e custo de operação (' + brl(t.custoOperacao) + ')' : '') + ' já descontados' : 'Adicione itens pelas calculadoras.';
+    var principal = c[c.regimeAtual];
+    renderHeroDre('oo-', c.real, c.presumido, orc.configSnapshot);
+    renderGraficoGenerico('oviz', t.totalCliente, t.custoTotal, principal.lucroLiquido, c.composicao.map(function (p) {
+      return { nome: p.nome, sub: p.chave === 'cmv' ? 'créditos deduzidos uma única vez' : '', valor: p.valor, chave: p.chave };
     }).filter(function (p) { return p.chave !== 'operacao' || c.operacao.aplicar; }));
-    renderDre(c.real, c.presumido, 'oo-dre', DRE_LINHAS_ORCAMENTO, 'Tributos totais líquidos (itens) + IRPJ/CSLL consolidado');
+    renderDre(c.real, c.presumido, 'oo-dre', DRE_LINHAS_ORCAMENTO, 'Tributos líquidos de créditos + IRPJ/CSLL (informativo; já considerados acima)', orc.configSnapshot);
     var p = orc.premissas;
     $('orc-dreHint').textContent = 'Estimativa gerencial — não é apuração. Premissas congeladas neste orçamento: IRPJ/CSLL real ' + pct(p.irpjCsllReal, 0) + ' (marginal) sobre o lucro consolidado — prejuízo de um item compensa outro e custos internos são tratados como dedutíveis; presumido ' + pct(p.irpj, 0) + ' + ' + pct(p.csll, 0) + ' sobre ' + pct(p.presumidoBaseIRPJ, 0) + '/' + pct(p.presumidoBaseCSLL, 0) + ' da receita' + (p.lc224 ? ' (+10%, LC 224/2025)' : '') + ', somado por item; custos internos sem crédito de PIS/COFINS. ' + (c.operacao.aplicar ? 'Custo de operação ligado: ' + brl(c.operacao.taxaM2) + '/m² (taxa congelada) × ' + numFmt(c.operacao.m2, 0) + ' m² = ' + brl(c.operacao.valor) + ', dedutível no lucro real, sem crédito. ' : 'Custo de operação desligado neste orçamento. ') + 'Configuração congelada: dólar ' + numFmt(orc.configSnapshot.dolar, 2) + ' · motor ' + orc.versaoMotor + '.';
+    if (c.regimeAtual === 'presumido') $('orc-dreHint').textContent = 'Lucro presumido — estimativa gerencial incremental por pedido. Créditos recuperáveis de ICMS/IPI reduzem o CMV; PIS/COFINS cumulativos sem crédito de compra. Custos internos e rateio reduzem o resultado, sem reduzir a base de IRPJ/CSLL. Configuração e alíquotas congeladas neste orçamento.';
     renderItensOrc(c); renderCustosOrc(c); renderOperacaoOrc(c);
     var av = $('oo-avisos'); av.innerHTML = '';
     var calculado = orc.itens.length ? orc.itens.reduce(function (m, it) { return it.calculadoEm > m ? it.calculadoEm : m; }, '') : orc.criadoEm;
@@ -2010,12 +2036,12 @@
     c.avisos.forEach(function (a) { av.appendChild(el('p', { class: 'warn', text: a })); });
     var fcpPend = ORC.fcpPendente(orc);
     if (fcpPend.length) av.appendChild(el('p', { class: 'warn', text: 'FCP de ' + fcpPend.join(', ') + ' não cadastrado: itens de importação direta calculados com FCP 0% e a proposta sairá com a ressalva "adicional estadual será confirmado na emissão da nota fiscal". Para remover, cadastre o FCP dessa UF em Configurações (0 se o estado não cobra).' }));
-    if (c.real.reducaoPotencial > 0) av.appendChild(el('p', { text: 'Orçamento com prejuízo: imposto estimado zero; a perda de ' + brl(-c.real.lucroOperacional) + ' reduziria IRPJ/CSLL de outros resultados em até ' + brl(c.real.reducaoPotencial) + ' (não computado).' }));
+    if (c.regimeAtual === 'real' && c.real.reducaoPotencial > 0) av.appendChild(el('p', { text: 'Orçamento com prejuízo: imposto estimado zero; a perda de ' + brl(-c.real.lucroOperacional) + ' reduziria IRPJ/CSLL de outros resultados em até ' + brl(c.real.reducaoPotencial) + ' (não computado).' }));
     if (orc.versaoMotor !== ORC.VERSAO_MOTOR) av.appendChild(el('p', { class: 'warn', text: 'Calculado com o motor ' + orc.versaoMotor + '; este app usa ' + ORC.VERSAO_MOTOR + ' — recalcule para atualizar.' }));
     if (!av.children.length) av.appendChild(el('p', { text: 'Premissas e configuração congeladas; nada pendente.' }));
     renderProposta(c);
   }
-  function round2(v) { return Math.round(v * 100) / 100; }
+  function round2(v) { return CALC.dinheiro(v); }
   /* ---------- proposta comercial impressa (formato das propostas do mercado; textos em termos.js) ---------- */
   function consultorAtual() { return usuarioAtual ? { nome: usuarioAtual.nome || '', email: usuarioAtual.email || '' } : null; }
   function pad3(n) { return ('00' + n).slice(-3); }
@@ -2152,7 +2178,7 @@
     var depois = ORC.consolidar(simulado);
     var linhas = ['Recalcular com a configuração atual (dólar ' + numFmt(config.dolar, 2) + '):',
       'Total ao cliente: ' + brl(antes.totais.totalCliente) + ' → ' + brl(depois.totais.totalCliente),
-      'Lucro líquido (real): ' + brl(antes.real.lucroLiquido) + ' → ' + brl(depois.real.lucroLiquido)];
+      'Lucro líquido (' + depois.regimeAtual + '): ' + brl(antes[antes.regimeAtual].lucroLiquido) + ' → ' + brl(depois[depois.regimeAtual].lucroLiquido)];
     orc.itens.forEach(function (it, i) {
       var a = it.resultado ? it.resultado.lucro : 0, b = novos[i].resultado.lucro;
       if (Math.abs(a - b) > 0.005) linhas.push('• ' + (it.descricao || ORIGEM_ROTULO[it.origem]) + ': lucro ' + brl(a) + ' → ' + brl(b));
