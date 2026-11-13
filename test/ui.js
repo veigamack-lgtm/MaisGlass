@@ -872,7 +872,7 @@ await (async function () {
   ok(/diferente da congelada/.test(a.texto('oo-avisos')), 'orçamento LIGADO: a taxa congelada (20) difere da atual (10) → aviso');
   ok(/a configuração atual está em R\$ 10,00\/m²/.test(a.texto('o-custoOperacaoInfo')), 'cartão avisa que a taxa atual é outra');
   a.confirms.length = 0; a.click('orcRecalcular');
-  ok(a.confirms.length === 1 && /Lucro líquido \(real\)/.test(a.confirms[0]), 'Recalcular pergunta mostrando o lucro antes → depois');
+  ok(a.confirms.length === 1 && /Lucro líquido \(presumido\)/.test(a.confirms[0]), 'Recalcular pergunta mostrando o lucro antes → depois');
   ok(/R\$ 10,00\/m² × 1\.336,00 m²/.test(a.texto('o-custoOperacaoInfo')) && !/diferente da congelada/.test(a.texto('oo-avisos')), 'depois de recalcular: taxa congelada = 10 e aviso apagado');
   // 6. emitir trava o botão
   a.set('o-status', 'enviado', 'change');
@@ -1070,6 +1070,35 @@ await (async function () {
   await amb.fechar();
 })();
 
+await (async function () {
+  console.log('\n--- Auditoria v5: presumido, comissão, cartão e proposta');
+  var amb = await ambiente(), a = await novaAba(amb);
+  a.novoOrc('Auditoria do presumido', 'MG'); a.aba('revenda'); a.click('r-addOrc'); a.aba('orcamentos');
+  ok(a.$('oo-liqReal').closest('.mini-hero').classList.contains('hidden'), 'lucro real fica oculto nos novos orçamentos');
+  ok(!a.$('oo-liqPres').closest('.mini-hero').classList.contains('hidden'), 'presumido é o resultado principal');
+  igual('DRE com uma coluna de resultados', a.$('oo-dre').querySelectorAll('thead th').length, 2);
+  a.click('orcAddCusto');
+  function custo() { return a.doc.querySelector('#orc-custos tbody tr'); }
+  function mudar(e,v) { e.value=v; e.dispatchEvent(new a.w.Event('change',{bubbles:true})); }
+  mudar(custo().querySelectorAll('select')[1], 'percentual');
+  mudar(custo().querySelector('input[type=number]'), '5');
+  var avista = O.consolidar(a.orcAberto()).presumido.lucroLiquido;
+  a.set('o-pagamento','Parcelado','change');
+  var parcelado = O.consolidar(a.orcAberto()).presumido.lucroLiquido;
+  ok(parcelado >= avista && parcelado-avista < .021, 'cartão cobre comissão e preserva lucro na interface');
+  ok(a.confirms[a.confirms.length-1].indexOf('Lucro líquido (presumido)') >= 0, 'confirmação usa regime atual');
+  var preco5 = a.orcAberto().itens[0].resultado.precoFinal;
+  mudar(custo().querySelector('input[type=number]'), '10');
+  ok(a.orcAberto().itens[0].resultado.precoFinal > preco5, 'comissão maior atualiza acréscimo do cartão');
+  igual('resultado recalculado confere com o motor', O.conferirResultados(a.orcAberto()).divergentes, []);
+  var total = a.orcAberto().itens[0].resultado.precoFinal;
+  ok(a.texto('proposta').includes(a.w.GM_CALC.fmtBRL(total)), 'proposta mostra total calculado');
+  await a.sync();
+  var salvo = (await a.servidor()).find(function(x) {return x.dados.cliente.nome==='Auditoria do presumido';});
+  ok(!!salvo && salvo.dados.itens[0].resultado.precoFinal===total, 'servidor valida e grava o resultado do presumido');
+  igual('sem erros na interface da auditoria',a.errosPagina,[]);
+  await amb.fechar();
+})();
 fim();
 })().catch(function (e) { console.error('ERRO NO SCRIPT:', e && e.stack || e); process.exit(1); });
 

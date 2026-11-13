@@ -465,7 +465,7 @@
     throw new Error(nome + ' deve ser verdadeiro ou falso (recebido "' + v + '").');
   }
 
-  function calcularRevenda(config, inputs) {
+  function calcularRevendaLegado(config, inputs) {
     if (!isObj(config)) throw new Error('Configuração inválida.');
     if (!isObj(inputs)) throw new Error('Entradas inválidas.');
     var rv = config.revenda || {};
@@ -665,7 +665,7 @@
    *   FCP fica na base do PIS/COFINS (SC Cosit 61/2024): pis += FCP × 1,65%; cofins += FCP × 7,6%
    *   custo total += FCP + ΔPIS + ΔCOFINS; lucro = preço final − custo total
    * ----------------------------------------------------------------- */
-  function calcularImportacao(config, inputs) {
+  function calcularImportacaoLegado(config, inputs) {
     var r = calcular(config, inputs);
     var out = {}; Object.keys(r).forEach(function (k) { out[k] = r[k]; });
     out.notas = r.notas.slice();
@@ -708,6 +708,7 @@
    * ----------------------------------------------------------------- */
   function dreImportacao(config, r) {
     if (!isObj(config) || !isObj(r)) throw new Error('Resultado inválido para a DRE.');
+    if (r.regimeAtual === 'presumido' && r.dre) return r.dre;
     var tb = config.tributos || {};
     var fcp = isFin(r.fcp) ? r.fcp : 0;
     var basePisCofins = r.precoComTaxa + fcp - r.frete - r.icms;    // mesma base da calc 1 (F13/F14), com o FCP dentro
@@ -777,6 +778,7 @@
   function dreComOperacao(config, dre, custo) {
     if (!isObj(config) || !isObj(dre) || !isObj(dre.real) || !isObj(dre.presumido)) throw new Error('DRE inválida para o custo de operação.');
     var c = nonNeg(custo, 'custo de operação');
+    if (usaPresumido(config)) c = dinheiro(c);
     var tb = config.tributos || {};
     var out = {};
     ['real', 'presumido'].forEach(function (reg) {
@@ -789,13 +791,187 @@
       n.margemLiquida = d.receitaLiquida > 0 ? n.lucroLiquido / d.receitaLiquida : 0;
       n.margemSobreValorPago = d.receitaBruta > 0 ? n.lucroLiquido / d.receitaBruta : 0;
       n.tributosTotais = d.tributosTotais - d.irpjCsll + n.irpjCsll;
+      if (usaPresumido(config)) {
+        n.lucroOperacional = dinheiro(n.lucroOperacional);
+        n.irpjCsll = dinheiro(n.irpjCsll);
+        n.lucroLiquido = dinheiro(n.lucroOperacional - n.irpjCsll);
+        n.tributosTotais = dinheiro(d.tributosTotais - d.irpjCsll + n.irpjCsll);
+        n.margemLiquida = d.receitaLiquida > 0 ? n.lucroLiquido / d.receitaLiquida : 0;
+        n.margemSobreValorPago = d.receitaBruta > 0 ? n.lucroLiquido / d.receitaBruta : 0;
+      }
       out[reg] = checarFinito(n);
     });
     return out;
   }
 
+  // Configurações congeladas até v4 conservam o motor histórico. A configuração
+  // corrente migra para v5; os orçamentos antigos só mudam por recálculo explícito.
+  function usaPresumido(config) { return !!config && Number(config.versao) >= 5; }
+  function dinheiro(v) {
+    var a = Math.abs(v);
+    // Corrige apenas o ruído binário no ponto de meio centavo; preserva precisão
+    // de quantidades e taxas. Arredondamento comercial simétrico para negativos.
+    return Math.sign(v) * Math.round((a + Number.EPSILON * Math.max(1, a)) * 100) / 100;
+  }
   function fmtBRL(v) {
-    return 'R$ ' + (Math.round(v * 100) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return 'R$ ' + dinheiro(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function entradasComPerda(inputs) {
+    var out = Object.assign({}, inputs), p = nonNeg(inputs.perda, 'perda');
+    if (p >= 1) throw new Error('A perda deve ser menor que 100% da quantidade comprada.');
+    out.perda = p / (1 - p); // adapta somente a entrada do motor histórico
+    out.pagamento = 'À vista';
+    return out;
+  }
+  function dreMonetaria(config, r, reg, cmv, pisCofins, creditos) {
+    var tb = config.tributos, m = dinheiro;
+    var d = { regime: reg, receitaBruta: r.precoFinal, ipi: r.ipiVenda || 0,
+      icms: r.icmsDebito === undefined ? r.icms : r.icmsDebito,
+      difalFcp: m(r.difal + r.fcp), pisCofins: m(pisCofins), cmv: m(cmv),
+      frete: m(r.frete), cartao: m(r.valorTaxaCartao) };
+    d.deducoes = m(d.ipi + d.icms + d.difalFcp + d.pisCofins);
+    d.receitaLiquida = m(d.receitaBruta - d.deducoes);
+    d.lucroBruto = m(d.receitaLiquida - d.cmv);
+    d.lucroOperacional = m(d.lucroBruto - d.frete - d.cartao);
+    d.irpjCsll = m(reg === 'presumido' ? (d.receitaBruta - d.ipi) * aliquotaPresumido(tb)
+      : Math.max(0, d.lucroOperacional) * tb.irpjCsllReal);
+    d.lucroLiquido = m(d.lucroOperacional - d.irpjCsll);
+    d.margemLiquida = d.receitaLiquida > 0 ? d.lucroLiquido / d.receitaLiquida : 0;
+    d.margemSobreValorPago = d.receitaBruta > 0 ? d.lucroLiquido / d.receitaBruta : 0;
+    d.tributosTotais = m(d.deducoes - creditos + d.irpjCsll);
+    return checarFinito(d);
+  }
+  // Resolve o preço pelo lucro líquido efetivo, incluindo os tributos sobre o
+  // acréscimo. Trabalha em centavos; o resultado nunca fica abaixo do à vista.
+  function preservarLucro(avaliar, caixa, taxa, retencao, percentuais) {
+    if (!taxa) return caixa;
+    percentuais = percentuais || [];
+    if (!Array.isArray(percentuais)) throw new Error('Custos percentuais inválidos.');
+    percentuais.forEach(function (p) { if (!Number.isFinite(p) || p < 0 || p > 1) throw new Error('Custo percentual deve estar entre 0% e 100%.'); });
+    retencao -= percentuais.reduce(function (s, p) { return s + p; }, 0);
+    if (!(retencao > taxa)) throw new Error('Tributos e taxa do cartão não permitem preservar o lucro à vista.');
+    var alvo = caixa.dre.presumido.lucroLiquido;
+    var estimado = caixa.precoFinal * retencao / (retencao - taxa);
+    var lo = Math.round(caixa.precoFinal * 100), hi = Math.ceil((estimado + 1 / (retencao - taxa)) * 100);
+    if (!Number.isSafeInteger(hi)) throw new Error('Preço parcelado fora do limite numérico.');
+    function acrescimoCustos(r) {
+      // Arredonda o acréscimo para cima por item: a soma continua cobrindo os
+      // custos calculados sobre o orçamento inteiro, mesmo com vários itens.
+      return dinheiro(percentuais.reduce(function (s, p) {
+        return s + Math.ceil((r.precoFinal - caixa.precoFinal) * p * 100 - 1e-7) / 100;
+      }, 0));
+    }
+    function liquido(r) { return dinheiro(r.dre.presumido.lucroLiquido - acrescimoCustos(r)); }
+    function suficiente(r) { return liquido(r) >= alvo - 0.004; }
+    var r = avaliar(hi / 100, taxa);
+    if (!suficiente(r)) throw new Error('Não foi possível preservar o lucro no parcelamento.');
+    while (hi - lo > 1) {
+      var mid = Math.floor((hi + lo) / 2), t = avaliar(mid / 100, taxa);
+      if (suficiente(t)) { hi = mid; r = t; } else lo = mid;
+    }
+    // Tributos arredondados podem cruzar simultaneamente um centavo. Procura
+    // na vizinhança o mesmo lucro, ou a menor sobra possível a favor da empresa.
+    var melhor = r;
+    for (var c = Math.max(Math.round(caixa.precoFinal * 100), hi - 12); c <= hi + 12; c++) {
+      var cand = avaliar(c / 100, taxa);
+      if (suficiente(cand) && (liquido(cand) < liquido(melhor) ||
+          (liquido(cand) === liquido(melhor) && cand.precoFinal < melhor.precoFinal))) melhor = cand;
+    }
+    melhor.precoAVista = caixa.precoFinal;
+    melhor.lucroLiquidoAVista = alvo;
+    melhor.acrescimoCustosPercentuais = acrescimoCustos(melhor);
+    melhor.diferencaLucroParcelado = dinheiro(liquido(melhor) - alvo);
+    return melhor;
+  }
+  function calcularRevenda(config, inputs) {
+    if (!usaPresumido(config)) return calcularRevendaLegado(config, inputs);
+    var base = calcularRevendaLegado(config, entradasComPerda(inputs));
+    var m = dinheiro, tb = config.tributos, taxa = taxaCartao(config, inputs);
+    var compra = m(base.compraProdutos), ipiCompra = m(compra * Number(inputs.ipi));
+    var creditoICMS = m(compra * Number(inputs.icmsCompra));
+    var creditoIPI = base.creditoIPI > 0 ? ipiCompra : 0;
+    var nf = m(compra + ipiCompra), cmv = m(nf - creditoICMS - creditoIPI);
+    var creditoReal = m((compra - creditoICMS) * config.saida.pis) + m((compra - creditoICMS) * config.saida.cofins);
+    var i = base.ipiVendaAliq, d = base.difalPct, f = base.fcpPct;
+    var fatorProdutos = base.difalIncluso ? 1 / (1 + i) : (1 - d - f) / (1 + i);
+    var fatorIPI = base.difalIncluso ? 1 - fatorProdutos : fatorProdutos * i;
+    var fatorICMS = (base.contribuinte ? fatorProdutos : 1) * base.icmsVendaAliq;
+    var fatorPC = 1 - fatorIPI - fatorICMS - d;
+    if (fatorPC < 0) throw new Error('Alíquotas incompatíveis: base de PIS/COFINS negativa.');
+    var retencao = 1 - fatorIPI - fatorICMS - d - f - fatorPC * (tb.pisCumulativo + tb.cofinsCumulativo)
+      - (1 - fatorIPI) * aliquotaPresumido(tb);
+    function avaliar(total, cartao) {
+      var r = Object.assign({}, base);
+      r.regimeAtual = 'presumido'; r.precoFinal = r.valorOperacao = m(total);
+      r.precoVendaM2 = r.precoFinal / Number(inputs.quantidade);
+      r.taxaCartao = cartao; r.valorTaxaCartao = m(r.precoFinal * cartao);
+      r.ipiVenda = m(r.precoFinal * fatorIPI);
+      r.valorProdutos = base.difalIncluso ? m(r.precoFinal - r.ipiVenda)
+        : m(r.precoFinal - r.ipiVenda - m(r.precoFinal * d) - m(r.precoFinal * f));
+      r.precoComTaxa = base.difalIncluso ? r.precoFinal : r.valorProdutos;
+      r.baseICMS = r.baseVenda = base.contribuinte ? r.valorProdutos : r.precoFinal;
+      r.icmsDebito = m(r.baseICMS * base.icmsVendaAliq);
+      r.difal = m(r.baseICMS * d); r.fcp = m(r.baseICMS * f);
+      r.compraProdutos = compra; r.ipiCompra = ipiCompra; r.totalNFCompra = nf;
+      r.creditoICMS = creditoICMS; r.creditoIPI = creditoIPI; r.creditoPIS = r.creditoCOFINS = 0;
+      r.custoLiquidoCompra = cmv; r.custoLiquidoM2 = cmv / Number(inputs.quantidade);
+      r.icmsInternoDevido = m(r.icmsDebito - creditoICMS);
+      r.icmsARecolher = Math.max(0, r.icmsInternoDevido); r.saldoCredorICMS = Math.max(0, -r.icmsInternoDevido);
+      r.icmsTotal = m(r.icmsInternoDevido + r.difal + r.fcp);
+      r.ipiDevido = m(r.ipiVenda - creditoIPI); r.ipiARecolher = Math.max(0, r.ipiDevido); r.saldoCredorIPI = Math.max(0, -r.ipiDevido);
+      r.basePisCofinsVenda = Math.max(0, m(r.precoFinal - r.ipiVenda - r.icmsDebito - r.difal));
+      r.pisVenda = r.pisDevido = m(r.basePisCofinsVenda * tb.pisCumulativo);
+      r.cofinsVenda = r.cofinsDevido = m(r.basePisCofinsVenda * tb.cofinsCumulativo);
+      r.pisCofinsARecolher = m(r.pisVenda + r.cofinsVenda); r.saldoCredorPisCofins = 0;
+      r.frete = m(base.frete);
+      r.dre = {
+        presumido: dreMonetaria(config, r, 'presumido', cmv, r.pisCofinsARecolher, creditoICMS + creditoIPI),
+        real: dreMonetaria(config, r, 'real', cmv - creditoReal,
+          m(r.basePisCofinsVenda * config.saida.pis) + m(r.basePisCofinsVenda * config.saida.cofins), creditoICMS + creditoIPI + creditoReal)
+      };
+      r.lucro = r.dre.presumido.lucroOperacional; r.custoTotal = m(r.precoFinal - r.lucro);
+      r.markup = cmv > 0 ? r.lucro / cmv : 0;
+      // Saldo credor é ativo recuperável: compõe o resultado econômico, não uma entrada em caixa.
+      r.saldoCredorTotal = m(r.saldoCredorICMS + r.saldoCredorIPI);
+      r.notas = ['Lucro presumido: PIS/COFINS cumulativos, sem crédito de aquisição.',
+        'Compra para ' + Number(inputs.quantidade) + ' m² vendidos: ' + r.qtdComPerda.toLocaleString('pt-BR', {maximumFractionDigits: 6}) + ' m², considerando o descarte sobre a chapa comprada.',
+        'ICMS: débito ' + fmtBRL(r.icmsDebito) + ' − crédito ' + fmtBRL(creditoICMS) + '; IPI: débito ' + fmtBRL(r.ipiVenda) + ' − crédito ' + fmtBRL(creditoIPI) + '.',
+        'Saldo credor de ' + fmtBRL(r.saldoCredorTotal) + ' é crédito a compensar; não representa dinheiro recebido.',
+        'DRE gerencial por venda; IRPJ/CSLL pelo critério incremental. A apuração fiscal é do período inteiro.'];
+      return checarFinito(r);
+    }
+    return preservarLucro(avaliar, avaliar(base.precoFinal, 0), taxa, retencao, inputs.custosPercentuais);
+  }
+  function calcularImportacao(config, inputs) {
+    if (!usaPresumido(config)) return calcularImportacaoLegado(config, inputs);
+    var base = calcularImportacaoLegado(config, entradasComPerda(inputs)), tb = config.tributos, m = dinheiro;
+    var taxa = taxaCartao(config, inputs), fator = 1 + base.difalPct + base.fcpPct;
+    var fatorICMS = base.icmsAliqEfetiva / fator;
+    var fatorPC = (1 + base.fcpPct) / fator - fatorICMS;
+    var retencao = 1 - (base.difalPct + base.fcpPct) / fator - fatorICMS
+      - fatorPC * (tb.pisCumulativo + tb.cofinsCumulativo) - aliquotaPresumido(tb);
+    function avaliar(total, cartao) {
+      var r = Object.assign({}, base);
+      r.regimeAtual = 'presumido'; r.precoFinal = m(total); r.precoComTaxa = r.precoFinal / fator;
+      r.precoVendaM2 = r.precoFinal / r.quantidade;
+      r.difal = m(r.precoComTaxa * base.difalPct); r.fcp = m(r.precoComTaxa * base.fcpPct);
+      r.icms = m((r.precoComTaxa - r.frete) * base.icmsAliqEfetiva);
+      r.basePisCofinsVenda = Math.max(0, m(r.precoComTaxa + r.fcp - r.frete - r.icms));
+      r.pis = m(r.basePisCofinsVenda * tb.pisCumulativo); r.cofins = m(r.basePisCofinsVenda * tb.cofinsCumulativo);
+      r.taxaCartao = cartao; r.valorTaxaCartao = m(r.precoFinal * cartao); r.frete = m(r.frete);
+      r.custoSemImposto = m(base.custoSemImposto);
+      r.importacao = Object.assign({}, base.importacao, { creditoPisM2: 0, creditoCofinsM2: 0 });
+      r.dre = { presumido: dreMonetaria(config, r, 'presumido', r.custoSemImposto, r.pis + r.cofins, 0) };
+      var creditos = m(base.quantidade * base.importacao.creditoPisM2) + m(base.quantidade * base.importacao.creditoCofinsM2);
+      r.dre.real = dreMonetaria(config, r, 'real', r.custoSemImposto - creditos,
+        m(r.basePisCofinsVenda * config.saida.pis) + m(r.basePisCofinsVenda * config.saida.cofins), creditos);
+      r.lucro = r.dre.presumido.lucroOperacional; r.custoTotal = m(r.precoFinal - r.lucro);
+      r.markup = r.custoSemImposto > 0 ? r.lucro / r.custoSemImposto : 0;
+      r.notas = ['Lucro presumido: PIS/COFINS pagos na importação permanecem no custo, sem crédito cumulativo.',
+        'DRE gerencial por venda; IRPJ/CSLL pelo critério incremental. Regime especial e IPI de saída conforme premissas configuradas.'];
+      return checarFinito(r);
+    }
+    return preservarLucro(avaliar, avaliar(base.precoFinal, 0), taxa, retencao, inputs.custosPercentuais);
   }
 
   function notas(o) {
@@ -812,6 +988,6 @@
   }
 
   root.GM_CALC = { calcular: calcular, calcularImportacao: calcularImportacao, calcularRevenda: calcularRevenda, dreImportacao: dreImportacao, aliquotaPresumido: aliquotaPresumido, aliquotaInterestadual: aliquotaInterestadual, derivarDifal: derivarDifal, migrarConfig: migrarConfig, EMPRESA_UF: EMPRESA_UF, custoImportacao: custoImportacao, taxaCartao: taxaCartao, booleano: booleano,
-    findProduto: findProduto, validarConfig: validarConfig, fmtBRL: fmtBRL, UFS: UFS,
+    findProduto: findProduto, validarConfig: validarConfig, fmtBRL: fmtBRL, dinheiro: dinheiro, usaPresumido: usaPresumido, UFS: UFS,
     resumoOperacao: resumoOperacao, custoOperacaoDe: custoOperacaoDe, dreComOperacao: dreComOperacao, CATEGORIAS_OPERACAO: CATEGORIAS_OPERACAO };
 })(typeof module !== 'undefined' ? module.exports : window);

@@ -25,7 +25,7 @@
   var CALC = root.GM_CALC || (typeof require === 'function' ? require('./calc.js').GM_CALC : null);
   if (!CALC) throw new Error('orcamento.js precisa de calc.js carregado antes.');
 
-  var VERSAO_MOTOR = '1.0';
+  var VERSAO_MOTOR = '2.0';
   var VERSAO_FORMATO = 1;
   var ORIGENS = ['importacao', 'revenda', 'nacional'];
   var DESTINATARIOS = ['consumidorFinal', 'contribuinteRevenda'];
@@ -89,7 +89,8 @@
       custosInternosDedutiveis: true,     // simplificação declarada da v1
       custoOperacaoDedutivel: true,       // custo de operação (rateio por m², out/2026): despesa dedutível no lucro real, sem crédito — mesma premissa dos custos internos
       creditoFreteContratado: false,      // simplificação declarada da v1 (pendência com a contadoria)
-      arredondamento: 'exibicao',         // motor em precisão cheia; arredonda só na tela/proposta
+      arredondamento: CALC.usaPresumido(config) ? 'monetario_por_item' : 'exibicao',
+      regimeAtual: CALC.usaPresumido(config) ? 'presumido' : 'real',
       versaoMotor: VERSAO_MOTOR
     };
   }
@@ -123,7 +124,8 @@
   /* Cabeçalho do orçamento: campos do cliente que valem para TODOS os itens */
   function cabecalhoDe(orcamento) {
     return { uf: orcamento.cliente.uf, destinatario: orcamento.cliente.destinatario,
-      pagamento: orcamento.condicoes.pagamento, bandeira: orcamento.condicoes.bandeira, parcelas: orcamento.condicoes.parcelas };
+      pagamento: orcamento.condicoes.pagamento, bandeira: orcamento.condicoes.bandeira, parcelas: orcamento.condicoes.parcelas,
+      custosPercentuais: (Array.isArray(orcamento.custosInternos) ? orcamento.custosInternos : []).filter(function (c) { return isObj(c) && c.percentual !== null && c.percentual !== undefined; }).map(function (c) { return numeroCusto(c.percentual); }) };
   }
   /* Alíquota interestadual de saída que a calculadora sugere para um destino (empresa fixa em MG).
    * null = venda interna (o motor usa a alíquota interna e ignora o campo). */
@@ -192,6 +194,7 @@
     if (!isObj(item.inputs)) throw new Error('Entradas do item ausentes.');
     var ap = aplicarCabecalho(item.origem, item.inputs, cabecalho);
     var inputs = ap.inputs, r, avisos = ap.avisos.slice();
+    if (CALC.usaPresumido(config)) inputs.custosPercentuais = clone(cabecalho.custosPercentuais || []);
     if (item.origem === 'importacao') {
       r = CALC.calcularImportacao(config, inputs);
       r.dre = CALC.dreImportacao(config, r);
@@ -227,7 +230,22 @@
     var p0 = numeroCusto(item.inputs[campo]); if (!isFin(p0) || p0 < 0) p0 = 0;
     var p1 = p0 > 0 ? p0 * 2 : 100;
     var a = avaliar(p0), b = avaliar(p1), p = p0, res = a;
-    for (var i = 0; i < 10; i++) {
+    if (CALC.usaPresumido(config)) {
+      // Tributos em centavos tornam a função uma escada: secante pode ter
+      // inclinação zero. Busca limitada e comparação monetária evitam isso.
+      var alvoTotal = CALC.dinheiro(alvo * qtd), baixo = 0, alto = Math.max(p1, alvo * 2), minimo = avaliar(0);
+      if (minimo.r.resultado.precoFinal > alvoTotal) throw new Error('Preço por m² abaixo do mínimo deste item: só frete e acréscimos já somam ' + CALC.fmtBRL(minimo.m2) + ' por m².');
+      for (var exp = 0; exp < 32 && avaliar(alto).r.resultado.precoFinal < alvoTotal; exp++) alto *= 2;
+      var melhorDist = Infinity;
+      for (var busca = 0; busca < 60; busca++) {
+        var meio = (baixo + alto) / 2, tentativa = avaliar(meio);
+        var dist = Math.abs(tentativa.r.resultado.precoFinal - alvoTotal);
+        if (dist < melhorDist) { p = meio; res = tentativa; melhorDist = dist; }
+        if (dist < 0.004) break;
+        if (tentativa.r.resultado.precoFinal < alvoTotal) baixo = meio; else alto = meio;
+      }
+      if (CALC.dinheiro(res.m2) !== CALC.dinheiro(alvo)) throw new Error('Não foi possível representar este preço por m² com os arredondamentos do item.');
+    } else for (var i = 0; i < 10; i++) {
       var inclinacao = (b.m2 - a.m2) / (p1 - p0);
       if (!(inclinacao > 0)) throw new Error('Não foi possível ajustar o preço deste item.');
       p = p0 + (alvo - a.m2) / inclinacao;
@@ -267,7 +285,7 @@
         frete: d.frete, cartao: d.cartao, lucroOperacional: d.lucroOperacional, irpjCsll: d.irpjCsll, lucroLiquido: d.lucroLiquido,
         tributosTotais: d.tributosTotais
       };
-      if (origem === 'importacao' && reg === 'real') {
+      if (origem === 'importacao' && reg === 'real' && resultado.regimeAtual !== 'presumido') {
         var imp = resultado.importacao || {};
         var qtd = isFin(resultado.quantidade) ? resultado.quantidade : 0;
         var creditos = qtd * ((imp.creditoPisM2 || 0) + (imp.creditoCofinsM2 || 0));
@@ -302,6 +320,8 @@
   function consolidar(orcamento) {
     if (!isObj(orcamento)) throw new Error('Orçamento inválido.');
     var p = orcamento.premissas || {};
+    var novo = CALC.usaPresumido(orcamento.configSnapshot);
+    function moeda(v) { return novo ? CALC.dinheiro(v) : v; }
     var itens = Array.isArray(orcamento.itens) ? orcamento.itens : [];
     var custos = Array.isArray(orcamento.custosInternos) ? orcamento.custosInternos : [];
     var avisos = [];
@@ -311,17 +331,17 @@
 
     var linhasAditivas = ['receitaBruta', 'ipi', 'icms', 'difalFcp', 'pisCofins', 'deducoes', 'cmv', 'frete', 'cartao'];
     var dres = calculados.map(function (it) { return adaptarDre(it.origem, it.resultado); });
-    var receitaBruta = dres.reduce(function (s, d) { return s + d.real.receitaBruta; }, 0);
+    var receitaBruta = moeda(dres.reduce(function (s, d) { return s + d.real.receitaBruta; }, 0));
 
     // custos internos: fixos + percentuais sobre o total ao cliente
     var custosDetalhe = custos.map(function (c) {
       var temPct = c.percentual !== null && c.percentual !== undefined;
       var pct = temPct ? numeroCusto(c.percentual) : NaN, fixo = temPct ? NaN : numeroCusto(c.valor);
       if (temPct ? !isFin(pct) : !isFin(fixo)) throw new Error('Valor inválido em "custo interno' + (c.descricao ? ' ' + c.descricao : '') + '".');
-      var valor = temPct ? pct * receitaBruta : fixo;
+      var valor = moeda(temPct ? pct * receitaBruta : fixo);
       return { id: c.id, tipo: c.tipo, descricao: c.descricao || '', percentual: temPct ? pct : null, valor: valor };
     });
-    var custosInternos = custosDetalhe.reduce(function (s, c) { return s + c.valor; }, 0);
+    var custosInternos = moeda(custosDetalhe.reduce(function (s, c) { return s + c.valor; }, 0));
 
     var freteItens = calculados.some(function (it) { return it.resultado.frete > 0; });
     var transporteInterno = custos.some(function (c) { return TIPOS_TRANSPORTE.indexOf(c.tipo) >= 0; });
@@ -332,29 +352,31 @@
     var aplicarOp = aplicaCustoOperacao(orcamento);
     var opResumo = CALC.resumoOperacao(orcamento.configSnapshot);
     var m2Operacao = calculados.reduce(function (s, it) { var q = Number(it.inputs && it.inputs.quantidade); return s + (isFin(q) && q > 0 ? q : 0); }, 0);
-    var custoOperacao = aplicarOp ? opResumo.taxaM2 * m2Operacao : 0;
+    var custoOperacao = moeda(aplicarOp ? opResumo.taxaM2 * m2Operacao : 0);
     if (aplicarOp && calculados.length) opResumo.avisos.forEach(function (a) { avisos.push('Custo de operação ligado, mas ' + a); });
     var operacao = { aplicar: aplicarOp, configurado: opResumo.configurado, taxaM2: opResumo.taxaM2, totalMensal: opResumo.totalMensal, producaoMensalM2: opResumo.producaoMensalM2, lancamentos: opResumo.lancamentos, m2: m2Operacao, valor: custoOperacao };
 
     function regime(reg) {
       var t = {};
-      linhasAditivas.forEach(function (k) { t[k] = dres.reduce(function (s, d) { return s + (d[reg][k] || 0); }, 0); });
-      t.receitaLiquida = t.receitaBruta - t.deducoes;
-      t.lucroBruto = t.receitaLiquida - t.cmv;
+      linhasAditivas.forEach(function (k) { t[k] = moeda(dres.reduce(function (s, d) { return s + (d[reg][k] || 0); }, 0)); });
+      t.receitaLiquida = moeda(t.receitaBruta - t.deducoes);
+      t.lucroBruto = moeda(t.receitaLiquida - t.cmv);
       t.custosInternos = custosInternos;
       t.custoOperacao = custoOperacao; t.custoOperacaoAplicado = aplicarOp;
-      t.lucroOperacional = t.lucroBruto - t.frete - t.cartao - custosInternos - custoOperacao;
+      t.lucroOperacional = moeda(t.lucroBruto - t.frete - t.cartao - custosInternos - custoOperacao);
       if (reg === 'real') t.irpjCsll = Math.max(0, t.lucroOperacional) * numFin(p.irpjCsllReal, 'premissa irpjCsllReal');
       else t.irpjCsll = dres.reduce(function (s, d) { return s + d.presumido.irpjCsll; }, 0);
-      t.lucroLiquido = t.lucroOperacional - t.irpjCsll;
+      t.irpjCsll = moeda(t.irpjCsll);
+      t.lucroLiquido = moeda(t.lucroOperacional - t.irpjCsll);
       t.margemLiquida = t.receitaLiquida > 0 ? t.lucroLiquido / t.receitaLiquida : null;
       t.margemSobreValorPago = t.receitaBruta > 0 ? t.lucroLiquido / t.receitaBruta : null;
-      t.tributosTotais = dres.reduce(function (s, d) { return s + (d[reg].tributosTotais - d[reg].irpjCsll); }, 0) + t.irpjCsll;
+      t.tributosTotais = moeda(dres.reduce(function (s, d) { return s + (d[reg].tributosTotais - d[reg].irpjCsll); }, 0) + t.irpjCsll);
       t.reducaoPotencial = reg === 'real' && t.lucroOperacional < 0 ? -t.lucroOperacional * numFin(p.irpjCsllReal, 'premissa irpjCsllReal') : 0;
       t.regime = reg;
       return t;
     }
     var real = regime('real'), presumido = regime('presumido');
+    var principal = novo ? presumido : real;
 
     var resumos = itens.map(resumoItem);
     var custoItens = resumos.reduce(function (s, i) { return s + i.custo; }, 0);
@@ -366,19 +388,20 @@
       custoItens: custoItens, lucroItens: lucroItens,
       custosInternos: custosInternos,
       custoOperacao: custoOperacao,
-      custoTotalReal: custoItens + custosInternos + custoOperacao,   // "custo total antes de IRPJ/CSLL — cenário lucro real"
-      lucroOperacional: real.lucroOperacional,
-      margemOperacional: receitaBruta > 0 ? real.lucroOperacional / receitaBruta : null
+      custoTotalReal: moeda(receitaBruta - real.lucroOperacional),
+      custoTotal: moeda(receitaBruta - principal.lucroOperacional),
+      lucroOperacional: principal.lucroOperacional,
+      margemOperacional: receitaBruta > 0 ? principal.lucroOperacional / receitaBruta : null
     };
     var composicao = [
-      { chave: 'tributos', nome: 'Tributos + IRPJ/CSLL', valor: real.deducoes + real.irpjCsll },
-      { chave: 'cmv', nome: 'Mercadoria (CMV)', valor: real.cmv },
-      { chave: 'freteCartao', nome: 'Frete na NF + cartão', valor: real.frete + real.cartao },
+      { chave: 'tributos', nome: 'Tributos sobre a venda + IRPJ/CSLL', valor: moeda(principal.deducoes + principal.irpjCsll) },
+      { chave: 'cmv', nome: 'Mercadoria (CMV líquido dos créditos)', valor: principal.cmv },
+      { chave: 'freteCartao', nome: 'Frete na NF + cartão', valor: moeda(principal.frete + principal.cartao) },
       { chave: 'internos', nome: 'Custos internos', valor: custosInternos },
       { chave: 'operacao', nome: 'Custo de operação (rateio por m²)', valor: custoOperacao },
-      { chave: 'lucro', nome: 'Lucro líquido', valor: real.lucroLiquido }
+      { chave: 'lucro', nome: 'Lucro líquido', valor: principal.lucroLiquido }
     ];
-    return { real: real, presumido: presumido, itens: resumos, custos: custosDetalhe, operacao: operacao, totais: totais, composicao: composicao, avisos: avisos, premissas: clone(p) };
+    return { real: real, presumido: presumido, regimeAtual: novo ? 'presumido' : 'real', itens: resumos, custos: custosDetalhe, operacao: operacao, totais: totais, composicao: composicao, avisos: avisos, premissas: clone(p) };
   }
 
   /* ---------- validação ---------- */
@@ -404,7 +427,7 @@
         if (Math.abs(d.lucroBruto - (d.receitaLiquida - d.cmv)) > TOL) e.push(rot + ': dre.' + reg + ' — lucro bruto ≠ receita líquida − CMV.');
         if (Math.abs(d.lucroOperacional - (d.lucroBruto - d.frete - d.cartao)) > TOL) e.push(rot + ': dre.' + reg + ' — lucro operacional ≠ lucro bruto − frete − cartão.');
         if (Math.abs(d.lucroLiquido - (d.lucroOperacional - d.irpjCsll)) > TOL) e.push(rot + ': dre.' + reg + ' — lucro líquido ≠ lucro operacional − IRPJ/CSLL.');
-        if (reg === 'real' && Math.abs(d.lucroOperacional - r.lucro) > TOL) e.push(rot + ': lucro operacional da DRE ≠ lucro do item.');
+        if (reg === (r.regimeAtual || 'real') && Math.abs(d.lucroOperacional - r.lucro) > TOL) e.push(rot + ': lucro operacional da DRE ≠ lucro do item.');
         if (Math.abs(d.receitaBruta - r.precoFinal) > TOL) e.push(rot + ': receita bruta da DRE ≠ preço final do item.');
       }
     });
@@ -472,6 +495,7 @@
         if (it.inputs.icmsSaidaManual !== undefined && typeof it.inputs.icmsSaidaManual !== 'boolean') e.push(rot + ': icmsSaidaManual deve ser verdadeiro/falso.');
         if (cab) divergenciasCabecalho(it.origem, it.inputs, cab).forEach(function (d) { e.push(rot + ': entradas divergem do cabeçalho (' + d + ').'); });
         if (it.resultado !== undefined) validarResultadoItem(it.resultado, it.origem, rot).forEach(function (m) { e.push(m); });
+        if (isObj(it.resultado) && CALC.usaPresumido(o.configSnapshot) && it.resultado.regimeAtual !== 'presumido') e.push(rot + ': resultado de versão antiga; atualize o app e recalcule com lucro presumido.');
         if (it.avisos !== undefined && !Array.isArray(it.avisos)) e.push(rot + ': avisos deve ser uma lista.');
       });
     }

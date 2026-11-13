@@ -8,7 +8,7 @@
   'use strict';
 
   var DEFAULT_CONFIG = {
-    versao: 4,               // 2 = MG interna 18% (planilha trazia 11%); 3 = PR 19,5 / RS 17 / MT 17 e DIFAL derivado; 4 = presumido com adicional de IRPJ (25%). calc.js → migrarConfig
+    versao: 5,               // v5: presumido principal, perda sobre compra, cartão preserva lucro e DRE em centavos; snapshots v4 preservados.
 
     /* --- Parâmetros gerais (Calculadora Chapa!F1 e VL 4+4!D7:D10) --- */
     dolar: 5.30,              // USD/BRL
@@ -99,7 +99,7 @@
 
     /* --- Calculadora 2: revenda de importado comprado no Brasil --- */
     revenda: {
-      empresaUF: 'MG',             // UF da MaisGlass (lucro real)
+      empresaUF: 'MG',             // UF da MaisGlass (lucro presumido)
       icmsCompraImportado: 0.04,   // ICMS destacado na NF do fornecedor (importado, interestadual)
       ipiCompra: 0.065,            // IPI destacado pelo importador (equiparado a industrial)
       ipiCredito: true,            // MaisGlass compra, beneficia e revende: toma crédito do IPI e destaca IPI na saída
